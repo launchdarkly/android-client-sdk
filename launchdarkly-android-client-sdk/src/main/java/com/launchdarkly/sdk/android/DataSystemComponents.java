@@ -141,7 +141,9 @@ public abstract class DataSystemComponents {
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
-                    inputs.isEvaluationReasons(), inputs.getHttp().isUseReport(),
+                    inputs.isEvaluationReasons(),
+                    DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
+                    inputs.getHttp().shouldUsePost(),
                     httpProps, inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
@@ -159,10 +161,14 @@ public abstract class DataSystemComponents {
 
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
+            // The FDv1 endpoints have no POST variant. When usePost is enabled, the fetcher
+            // sends the context in the request body with REPORT so it stays out of the
+            // request URI. useReport has no effect inside the data system.
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
                 inputs.getServiceEndpoints().getPollingBaseUri(),
                 inputs.isEvaluationReasons(),
-                inputs.getHttp().isUseReport(),
+                DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
+                inputs.getHttp().shouldUsePost(),
                 LDUtil.makeHttpProperties(inputs.getHttp()),
                 inputs.getCacheDir(),
                 inputs.getBaseLogger()
@@ -361,8 +367,10 @@ public abstract class DataSystemComponents {
         return new DefaultFDv2Requestor(
                 inputs.getEvaluationContext(), pollingBase,
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                httpProps, inputs.getHttp().isUseReport(),
-                inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
+                StandardEndpoints.FDV2_POLLING_REQUEST_POST_BASE_PATH,
+                httpProps, inputs.getHttp().shouldUsePost(),
+                inputs.isEvaluationReasons(),
+                DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
+                inputs.getBaseLogger());
     }
 }

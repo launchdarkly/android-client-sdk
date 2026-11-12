@@ -37,6 +37,7 @@ import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
+import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
@@ -48,8 +49,11 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,7 +76,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String PREFERENCES_NAME = "LaunchDarkly-testapp";
     private static final String PERSISTENCE_PREFERENCE = "eventPersistence";
+    private static final String ENVIRONMENT_PREFERENCE = "environment";
     private static final EventPersistence DEFAULT_PERSISTENCE = EventPersistence.IMMEDIATE;
+
+    /** What {@link LDClient#getForMobileKey} knows the second environment by. */
+    private static final String SECONDARY_ENVIRONMENT = "secondary";
 
     /**
      * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
@@ -96,8 +104,13 @@ public class MainActivity extends AppCompatActivity {
     /** Seven, seven and six: three batches, the last of them not full. */
     private static final int LARGE_EVENTS = 20;
 
-    /** Null while a persistence change restarts the client, which makes every button a no-op meanwhile. */
+    /**
+     * The primary environment's client, which {@link LDClient#init} returns. Null while a persistence
+     * change restarts the client, which makes every button a no-op meanwhile.
+     */
     private volatile LDClient ldClient;
+    /** Whether the buttons act on the secondary environment rather than the primary one. */
+    private volatile boolean secondarySelected;
     private EventPersistence eventPersistence;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
@@ -114,15 +127,61 @@ public class MainActivity extends AppCompatActivity {
         return "staging".equalsIgnoreCase(BuildConfig.LD_ENVIRONMENT);
     }
 
+    /** The SDK refuses a secondary key equal to the primary one, so that counts as no second environment. */
+    private static boolean hasSecondaryEnvironment() {
+        return !BuildConfig.SECONDARY_MOBILE_KEY.isEmpty()
+                && !BuildConfig.SECONDARY_MOBILE_KEY.equals(BuildConfig.MOBILE_KEY);
+    }
+
+    private String selectedMobileKey() {
+        return secondarySelected ? BuildConfig.SECONDARY_MOBILE_KEY : BuildConfig.MOBILE_KEY;
+    }
+
+    /**
+     * The selected environment's client, or null while a restart is under way. Some calls reach every
+     * environment whichever client they are made on: flush, setOffline, setOnline, identify and close.
+     */
+    private LDClient client() {
+        LDClient primary = ldClient;
+        if (primary == null || !secondarySelected) {
+            return primary;
+        }
+        return secondaryClient();
+    }
+
+    private static LDClient secondaryClient() {
+        try {
+            return LDClient.getForMobileKey(SECONDARY_ENVIRONMENT);
+        } catch (LaunchDarklyException e) {
+            return null;
+        }
+    }
+
+    /** The primary environment's client and, where there is one, the secondary one's. */
+    private static List<LDClient> environmentClients(LDClient primary) {
+        List<LDClient> clients = new ArrayList<>();
+        clients.add(primary);
+        LDClient secondary = hasSecondaryEnvironment() ? secondaryClient() : null;
+        if (secondary != null) {
+            clients.add(secondary);
+        }
+        return clients;
+    }
+
     private void updateDedupeStatus() {
         if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
             new Handler(MainActivity.this.getMainLooper()).post(this::updateDedupeStatus);
             return;
         }
 
+        String environment = isStaging() ? "staging" : "production";
+        if (hasSecondaryEnvironment()) {
+            environment += secondarySelected ? " · secondary" : " · primary";
+            environment += " (Flush, Offline, Identify: both)";
+        }
         String result = String.format(Locale.US,
                 "Environment: %s\nEvaluations requested: %d\n%s\n%s",
-                isStaging() ? "staging" : "production",
+                environment,
                 evaluationsRequested.get(),
                 fastHook.status(FAST_DEDUPE_WINDOW_MILLIS),
                 slowHook.status(SLOW_DEDUPE_WINDOW_MILLIS));
@@ -166,6 +225,7 @@ public class MainActivity extends AppCompatActivity {
         setupOversizedPostButton();
         setupOfflineSwitch();
         setupPersistenceSpinner();
+        setupEnvironmentSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
         // makes the pair worth pressing.
         LDCrashHandler.install(2, TimeUnit.SECONDS);
@@ -201,7 +261,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupStorageInspector() {
         TextView status = findViewById(R.id.storage_status);
-        storageInspector = new EventStorageInspector(this, status, BuildConfig.MOBILE_KEY);
+        storageInspector = new EventStorageInspector(this, status, selectedMobileKey());
         status.setOnLongClickListener(v -> {
             String path = storageInspector.directory().getPath();
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -234,6 +294,11 @@ public class MainActivity extends AppCompatActivity {
                                 .addHook(new DedupingHook(slowHook, SLOW_DEDUPE_WINDOW_MILLIS))
                 );
 
+        if (hasSecondaryEnvironment()) {
+            configBuilder.secondaryMobileKeys(
+                    Collections.singletonMap(SECONDARY_ENVIRONMENT, BuildConfig.SECONDARY_MOBILE_KEY));
+        }
+
         if (isStaging()) {
             configBuilder.serviceEndpoints(
                     Components.serviceEndpoints()
@@ -251,9 +316,15 @@ public class MainActivity extends AppCompatActivity {
 
         LDClient client = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
         Timber.i("client started with event persistence %s", persistence);
-        updateStatusString(client.getConnectionInformation());
-        client.registerStatusListener(ldStatusListener);
-        client.registerAllFlagsListener(allFlagsListener);
+        LDClient selected = secondarySelected ? secondaryClient() : client;
+        if (selected != null) {
+            updateStatusString(selected.getConnectionInformation());
+        }
+        // Every environment, so switching shows the other's changes without registering again.
+        for (LDClient each : environmentClients(client)) {
+            each.registerStatusListener(ldStatusListener);
+            each.registerAllFlagsListener(allFlagsListener);
+        }
         return client;
     }
 
@@ -303,6 +374,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Shown only when local.properties gives a second key, in which case the client starts both
+     * environments and this chooses which one the buttons, the connection status and the event storage
+     * view use. Saved like the persistence choice, so the launch that answers a kill button shows the
+     * environment it was pressed in.
+     */
+    private void setupEnvironmentSpinner() {
+        if (!hasSecondaryEnvironment()) {
+            return;
+        }
+        final SharedPreferences preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE);
+        secondarySelected = SECONDARY_ENVIRONMENT.equals(preferences.getString(ENVIRONMENT_PREFERENCE, null));
+
+        final Spinner spinner = findViewById(R.id.environment_spinner);
+        findViewById(R.id.environment_label).setVisibility(View.VISIBLE);
+        spinner.setVisibility(View.VISIBLE);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new String[] {"Primary", "Secondary"});
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(secondarySelected ? 1 : 0, false);
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                boolean secondary = position == 1;
+                if (secondary == secondarySelected) {
+                    return;
+                }
+                secondarySelected = secondary;
+                preferences.edit()
+                        .putString(ENVIRONMENT_PREFERENCE, secondary ? SECONDARY_ENVIRONMENT : "primary")
+                        .apply();
+                refreshConnectionStatus();
+                updateDedupeStatus();
+                if (storageInspector != null) {
+                    storageInspector.stopWatching();
+                    setupStorageInspector();
+                    storageInspector.startWatching();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+    }
+
+    /**
      * Off the main thread, because closing waits on the event store and starting waits for flags. The
      * spinner stays disabled until it is done, so restarts never overlap.
      * <p>
@@ -320,9 +439,12 @@ public class MainActivity extends AppCompatActivity {
         spinner.setEnabled(false);
         new Thread(() -> {
             if (previous != null) {
-                previous.unregisterStatusListener(ldStatusListener);
-                previous.unregisterAllFlagsListener(allFlagsListener);
+                for (LDClient each : environmentClients(previous)) {
+                    each.unregisterStatusListener(ldStatusListener);
+                    each.unregisterAllFlagsListener(allFlagsListener);
+                }
                 try {
+                    // Closes every environment.
                     previous.close();
                 } catch (IOException e) {
                     Timber.w(e, "closing the client for a persistence change");
@@ -346,11 +468,16 @@ public class MainActivity extends AppCompatActivity {
         }, "testapp-restart-client").start();
     }
 
+    private void refreshConnectionStatus() {
+        doSafeClientAction(client -> updateStatusString(client.getConnectionInformation()));
+    }
+
+    /** Registered on every environment, so each shows the selected environment's status, whichever changed. */
     private void setupListeners() {
         ldStatusListener = new LDStatusListener() {
             @Override
             public void onConnectionModeChanged(final ConnectionInformation connectionInformation) {
-                updateStatusString(connectionInformation);
+                refreshConnectionStatus();
             }
 
             @Override
@@ -358,7 +485,7 @@ public class MainActivity extends AppCompatActivity {
                 new Handler(MainActivity.this.getMainLooper()).post(() -> {
                     Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
                 });
-                MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
+                refreshConnectionStatus();
             }
         };
 
@@ -370,7 +497,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
             });
-            MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
+            refreshConnectionStatus();
         };
     }
 
@@ -378,33 +505,36 @@ public class MainActivity extends AppCompatActivity {
         Button flushButton = findViewById(R.id.flush_button);
         flushButton.setOnClickListener(v -> {
             Timber.i("flush onClick");
-            MainActivity.this.doSafeClientAction(() -> ldClient.flush());
+            MainActivity.this.doSafeClientAction(LDClient::flush);
         });
     }
 
     private interface LDClientAction {
-        void call();
+        void call(LDClient client);
     }
 
+    /** Calls the action with the selected environment's client, if there is one. */
     private void doSafeClientAction(LDClientAction function) {
-        if (ldClient != null) {
-            function.call();
+        LDClient client = client();
+        if (client != null) {
+            function.call(client);
         }
     }
 
     private interface LDClientGet<V> {
-        V get();
+        V get(LDClient client);
     }
 
     private <V> V doSafeClientGet(LDClientGet<V> function) {
-        return ldClient != null ? function.get() : null;
+        LDClient client = client();
+        return client != null ? function.get(client) : null;
     }
 
     private void setupTrackButton() {
         Button trackButton = findViewById(R.id.track_button);
         trackButton.setOnClickListener(v -> {
             Timber.i("track onClick");
-            MainActivity.this.doSafeClientAction(() -> ldClient.track("Android event name"));
+            MainActivity.this.doSafeClientAction(client -> client.track("Android event name"));
         });
     }
 
@@ -421,16 +551,17 @@ public class MainActivity extends AppCompatActivity {
      * Records the pair whose survival is in question: an evaluation, which is the exposure, and a
      * track, standing in for the error an application reports just before it dies.
      *
-     * <p>Returns false when there is no client, in which case nothing was recorded and ending the
-     * process would demonstrate nothing.
+     * <p>Returns the client they were recorded on, or null when there is none, in which case nothing was
+     * recorded and ending the process would demonstrate nothing.
      */
-    private boolean recordExposureAndError(String flagKey) {
-        if (ldClient == null) {
-            return false;
+    private LDClient recordExposureAndError(String flagKey) {
+        LDClient client = client();
+        if (client == null) {
+            return null;
         }
-        ldClient.boolVariation(flagKey, false);
-        ldClient.track("$ld:telemetry:error");
-        return true;
+        client.boolVariation(flagKey, false);
+        client.track("$ld:telemetry:error");
+        return client;
     }
 
     /**
@@ -444,10 +575,11 @@ public class MainActivity extends AppCompatActivity {
         killUnsentButton.setOnClickListener(v -> {
             final String flagKey = flagKeyToKillOver();
             Timber.w("eval+track+kill flag=%s", flagKey);
-            if (!recordExposureAndError(flagKey)) {
+            LDClient client = recordExposureAndError(flagKey);
+            if (client == null) {
                 return;
             }
-            ldClient.flush();
+            client.flush();
             new Handler(Looper.getMainLooper()).postDelayed(
                     () -> android.os.Process.killProcess(android.os.Process.myPid()),
                     5_000);
@@ -468,7 +600,7 @@ public class MainActivity extends AppCompatActivity {
         killNowButton.setOnClickListener(v -> {
             final String flagKey = flagKeyToKillOver();
             Timber.w("eval+track+kill now flag=%s", flagKey);
-            if (!recordExposureAndError(flagKey)) {
+            if (recordExposureAndError(flagKey) == null) {
                 return;
             }
             android.os.Process.killProcess(android.os.Process.myPid());
@@ -489,7 +621,7 @@ public class MainActivity extends AppCompatActivity {
         crashNowButton.setOnClickListener(v -> {
             final String flagKey = flagKeyToKillOver();
             Timber.w("eval+track+crash now flag=%s", flagKey);
-            if (!recordExposureAndError(flagKey)) {
+            if (recordExposureAndError(flagKey) == null) {
                 return;
             }
             throw new RuntimeException(
@@ -512,14 +644,15 @@ public class MainActivity extends AppCompatActivity {
     private void setupOverRefreshButton() {
         Button overRefreshButton = findViewById(R.id.over_refresh_button);
         overRefreshButton.setOnClickListener(v -> {
-            if (ldClient == null) {
+            LDClient client = client();
+            if (client == null) {
                 return;
             }
             final String flagKey = "trackevents-test";
             Timber.w("over-refresh eval flag=%s", flagKey);
 
-            double filling = averageMicroseconds(flagKey, EVENT_CAPACITY);
-            double overCapacity = averageMicroseconds(flagKey, OVER_CAPACITY_EVALUATIONS);
+            double filling = averageMicroseconds(client, flagKey, EVENT_CAPACITY);
+            double overCapacity = averageMicroseconds(client, flagKey, OVER_CAPACITY_EVALUATIONS);
 
             String result = String.format(Locale.US,
                     "Over-refresh %s\n%d filling: %.0f \u00b5s/eval\n%d over capacity: %.0f \u00b5s/eval",
@@ -540,14 +673,15 @@ public class MainActivity extends AppCompatActivity {
     private void setupFillBatchesButton() {
         Button fillBatchesButton = findViewById(R.id.fill_batches_button);
         fillBatchesButton.setOnClickListener(v -> {
-            if (ldClient == null) {
+            LDClient client = client();
+            if (client == null) {
                 return;
             }
             char[] filler = new char[LARGE_EVENT_DATA_CHARS];
             Arrays.fill(filler, 'x');
             String padding = new String(filler);
             for (int i = 1; i <= LARGE_EVENTS; i++) {
-                ldClient.trackData("fill-batches", LDValue.buildObject()
+                client.trackData("fill-batches", LDValue.buildObject()
                         .put("index", i)
                         .put("of", LARGE_EVENTS)
                         .put("padding", padding)
@@ -626,9 +760,10 @@ public class MainActivity extends AppCompatActivity {
             final Handler main = new Handler(getMainLooper());
             final String eventsBaseUri = isStaging() ? "https://mobile." + STAGING_DOMAIN
                     : "https://mobile.launchdarkly.com";
+            final String mobileKey = selectedMobileKey();
             status.setText("Posting 20 MB…");
             new Thread(() -> {
-                String report = OversizedPostProbe.run(BuildConfig.MOBILE_KEY, eventsBaseUri);
+                String report = OversizedPostProbe.run(mobileKey, eventsBaseUri);
                 Timber.w("oversized post\n%s", report);
                 main.post(() -> {
                     postButton.setEnabled(true);
@@ -680,10 +815,10 @@ public class MainActivity extends AppCompatActivity {
     /**
      * @return the mean wall time, in microseconds, of {@code count} evaluations of the flag
      */
-    private double averageMicroseconds(String flagKey, int count) {
+    private static double averageMicroseconds(LDClient client, String flagKey, int count) {
         long start = System.nanoTime();
         for (int i = 0; i < count; i++) {
-            ldClient.boolVariation(flagKey, false);
+            client.boolVariation(flagKey, false);
         }
         return (System.nanoTime() - start) / 1_000.0 / count;
     }
@@ -699,9 +834,7 @@ public class MainActivity extends AppCompatActivity {
             // an unchanged context still demonstrates that the reset happens either way.
             final String userKey = typedKey.isEmpty() ? DEFAULT_USER_KEY : typedKey;
             final LDContext updatedContext = LDContext.create(userKey);
-            MainActivity.this.doSafeClientAction(() -> {
-                ldClient.identify(updatedContext);
-            });
+            MainActivity.this.doSafeClientAction(client -> client.identify(updatedContext));
             MainActivity.this.updateDedupeStatus();
         });
     }
@@ -712,7 +845,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupOfflineSwitch() {
         offlineSwitch().setOnCheckedChangeListener((compoundButton, isChecked) ->
-            MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
+            MainActivity.this.doSafeClientAction(isChecked ? LDClient::setOffline : LDClient::setOnline)
         );
     }
 
@@ -734,31 +867,36 @@ public class MainActivity extends AppCompatActivity {
             String logResult;
             switch (type) {
             case "String":
-                result = MainActivity.this.doSafeClientGet(() -> ldClient.stringVariation(flagKey, "default"));
+                result = MainActivity.this.doSafeClientGet(client -> client.stringVariation(flagKey, "default"));
                 logResult = result == null ? "no result" : result;
                 Timber.i(logResult);
                 ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                MainActivity.this.doSafeClientAction(() -> {
-                    ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> {
+                MainActivity.this.doSafeClientAction(client -> {
+                    client.registerFeatureFlagListener(flagKey, flagKey1 -> {
+                        // Stays registered on this environment after a switch, when the result line is
+                        // the other one's.
+                        if (client != client()) {
+                            return;
+                        }
                         evaluationsRequested.incrementAndGet();
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView))
-                                .setText(ldClient.stringVariation(flagKey1, "default"));
+                                .setText(client.stringVariation(flagKey1, "default"));
                         MainActivity.this.updateDedupeStatus();
                     });
                 });
                 MainActivity.this.updateDedupeStatus();
                 return;
             case "Boolean":
-                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.boolVariation(flagKey, false)));
+                result = MainActivity.this.doSafeClientGet(client -> String.valueOf(client.boolVariation(flagKey, false)));
                 break;
             case "Integer":
-                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.intVariation(flagKey, 0)));
+                result = MainActivity.this.doSafeClientGet(client -> String.valueOf(client.intVariation(flagKey, 0)));
                 break;
             case "Float":
-                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.doubleVariation(flagKey, 0.0)));
+                result = MainActivity.this.doSafeClientGet(client -> String.valueOf(client.doubleVariation(flagKey, 0.0)));
                 break;
             case "Value":
-                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.jsonValueVariation(flagKey, null)));
+                result = MainActivity.this.doSafeClientGet(client -> String.valueOf(client.jsonValueVariation(flagKey, null)));
                 break;
             default:
                 result = null;

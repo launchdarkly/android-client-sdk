@@ -45,11 +45,13 @@ public abstract class Representations {
     public static class SdkConfigStreamParams {
         String baseUri;
         Long initialRetryDelayMs;
+        String filter;
     }
 
     public static class SdkConfigPollParams {
         String baseUri;
         Long pollIntervalMs;
+        String filter;
     }
 
     public static class SdkConfigEventParams {
@@ -78,6 +80,7 @@ public abstract class Representations {
         LDContext initialContext;
         boolean evaluationReasons;
         boolean useReport;
+        boolean usePost;
         boolean includeEnvironmentAttributes;
     }
 
