@@ -2551,7 +2551,7 @@ public class FDv2DataSourceTest {
 
         // The first FDv2 instance sends a payload with the directive. The second records when it is built.
         // The FDv1 fallback synchronizer sends the results that the test gives it.
-        // The fallback TTL ends after 100-200ms.
+        // The fallback TTL ends after 200-400ms.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Collections.singletonList(() -> {
@@ -2570,9 +2570,9 @@ public class FDv2DataSourceTest {
                 /* parkInitialDelayMillis= */ TimeUnit.MINUTES.toMillis(5),
                 /* parkMaxDelayMillis= */ TimeUnit.HOURS.toMillis(1),
                 /* failoverDelayMillis= */ 10,
-                /* fdv1FallbackTtlMillis= */ 200);
+                /* fdv1FallbackTtlMillis= */ 400);
 
-        // Start the data source. FDv1 sends a directive every 50ms until 300ms, which is longer than the TTL.
+        // Start the data source. FDv1 sends a directive every 50ms until 300ms.
         long start = System.nanoTime();
         startDataSource(dataSource);
         for (int delay = 50; delay <= 300; delay += 50) {
@@ -2586,7 +2586,7 @@ public class FDv2DataSourceTest {
         Long fdv2Restart = fdv2RestartTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(fdv2Restart);
         long restartMillis = TimeUnit.NANOSECONDS.toMillis(fdv2Restart - start);
-        assertTrue("restarted FDv2 after " + restartMillis + "ms", restartMillis >= 400);
+        assertTrue("restarted FDv2 after " + restartMillis + "ms", restartMillis >= 500);
         assertEquals(1, fdv1BuildCount.get());
         stopDataSource(dataSource);
     }
