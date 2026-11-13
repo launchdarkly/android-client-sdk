@@ -589,15 +589,20 @@ public class FDv2DataSourceTest {
     public void canDisposeWhenSynchronizersFallingBack() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
+        // The primary synchronizer delivers a change set and then reports that it is interrupted. The secondary
+        // synchronizer gives it something to fall back to.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        interrupted())),
-                1000, 2000);
+                Arrays.asList(
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                interrupted()),
+                        () -> new MockQueuedSynchronizer()),
+                120_000, 300_000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
         stopDataSource(dataSource); // should not hang while fallback condition is waiting
     }
@@ -1367,24 +1372,6 @@ public class FDv2DataSourceTest {
     }
 
     @Test
-    public void stopInterruptsConditionWaiting() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        // One sync: sends changeset then INTERRUPTED (triggers fallback timer), then hangs
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        interrupted())),
-                120_000, 300_000);
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
-
-        stopDataSource(dataSource); // should not hang while condition is waiting for fallback timeout
-    }
-
-    @Test
     public void stopCompletesWhenSynchronizerCloseDoesNotCompleteNext() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         CountDownLatch nextCalled = new CountDownLatch(1);
@@ -1779,89 +1766,60 @@ public class FDv2DataSourceTest {
     // ============================================================================
 
     @Test
-    public void conditionsInformedOfAllResults() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        interrupted(),
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                10_000, 20_000);
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
-
-        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertTrue(sink.getApplyCount() >= 2);
-        stopDataSource(dataSource);
-    }
-
-    @Test
     public void primeSynchronizerHasNoRecoveryCondition() throws Exception {
-        // The prime synchronizer (first available) gets only a FallbackCondition, not a RecoveryCondition.
-        // With two synchronizers and a very long recovery timeout, the prime sync should stay
-        // connected indefinitely without being interrupted by a recovery timer.
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger primeBuildCount = new AtomicInteger();
+        AtomicInteger secondaryBuildCount = new AtomicInteger();
+        MockQueuedSynchronizer prime = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
 
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
-
+        // The first instance of the prime synchronizer delivers a change set. The recovery timeout is 10ms.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> firstSync,
-                        () -> new MockQueuedSynchronizer()),
-                1000, 2000);
+                        () -> primeBuildCount.incrementAndGet() == 1 ? prime : new MockQueuedSynchronizer(),
+                        () -> {
+                            secondaryBuildCount.incrementAndGet();
+                            return new MockQueuedSynchronizer();
+                        }),
+                120_000, 10);
 
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        // Start the data source. Well after the recovery timeout, send another change set to the first instance.
+        startDataSource(dataSource);
+        executor.schedule(
+                () -> prime.addResult(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                100,
+                TimeUnit.MILLISECONDS);
 
-        // Give the recovery timer time to fire if it incorrectly exists (it shouldn't)
-        Thread.sleep(100);
-
-        // The first (prime) synchronizer should still be the active one; no switch should have happened
-        assertEquals(1, sink.getApplyCount());
+        // The data source applies both change sets, so it kept running the first instance.
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(1, primeBuildCount.get());
+        assertEquals(0, secondaryBuildCount.get());
         stopDataSource(dataSource);
     }
 
     @Test
     public void singleSynchronizerHasNoConditions() throws Exception {
-        // With only one synchronizer, there should be no fallback or recovery timers.
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+        MockQueuedSynchronizer sync = new MockQueuedSynchronizer(interrupted());
 
+        // The first instance of the only synchronizer reports that it is interrupted.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1000, 2000);
+                Collections.singletonList(() -> buildCount.incrementAndGet() == 1 ? sync : new MockQueuedSynchronizer()),
+                10, 10);
 
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        // Start the data source. Well after both timeouts, send a change set to the first instance.
+        startDataSource(dataSource);
+        executor.schedule(
+                () -> sync.addResult(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                100,
+                TimeUnit.MILLISECONDS);
 
-        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(2, sink.getApplyCount()); // both changesets processed without condition interruption
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void conditionFutureNeverCompletesWhenNoConditions() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1000, 2000);
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
-
-        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(2, sink.getApplyCount()); // both processed; conditions future never fired
+        // The data source applies the change set, so it kept running the first instance.
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(1, buildCount.get());
         stopDataSource(dataSource);
     }
 
