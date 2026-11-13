@@ -796,6 +796,33 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource);
     }
 
+    @Test
+    public void synchronizerShutdownByItselfReportsError() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch secondSyncStarted = new CountDownLatch(1);
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        // The first synchronizer shuts down by itself.
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false)),
+                        // The second synchronizer records when it starts.
+                        () -> {
+                            secondSyncStarted.countDown();
+                            return new MockQueuedSynchronizer();
+                        }));
+
+        // Start the data source, and wait until it moves on to the second synchronizer.
+        startDataSource(dataSource);
+        assertTrue(secondSyncStarted.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // The data source reported INTERRUPTED with an error.
+        assertEquals(DataSourceState.INTERRUPTED, sink.getLastState());
+        assertNotNull(sink.getLastError());
+        stopDataSource(dataSource);
+    }
+
     // While every synchronizer is parked, the synchronizer that was parked last is stopped.
     @Test
     public void parkedSynchronizerIsClosedWhileAllSynchronizersAreParked() throws Exception {
