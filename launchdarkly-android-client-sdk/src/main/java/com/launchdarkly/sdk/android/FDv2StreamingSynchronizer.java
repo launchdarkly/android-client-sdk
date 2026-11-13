@@ -427,6 +427,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                         (FDv2ProtocolHandler.FDv2ActionInternalError) action;
                 logger.error("FDv2 protocol internal error ({}): {}",
                         internalError.getErrorType(), internalError.getMessage());
+                cancelResetThresholdTimer();
                 resultQueue.put(FDv2SourceResult.status(
                         FDv2SourceResult.Status.interrupted(
                                 new LDFailure("FDv2 protocol internal error: " + internalError.getMessage(),
@@ -438,9 +439,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 if (errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.MISSING_PAYLOAD ||
                         errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.JSON_ERROR) {
                     restartStream(true);
-                } else {
-                    // The stream stays open, but the failure restarts the measurement of healthy operation.
-                    cancelResetThresholdTimer();
                 }
                 break;
             }
@@ -463,11 +461,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
         logger.debug("Stream received ping; fetching payload via poll");
         FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, logger, selectorSource.getSelector(), false);
+        if (result.getStatus() != null && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
+            cancelResetThresholdTimer();
+        }
         resultQueue.put(result);
         if (result.getResultType() == SourceResultType.CHANGE_SET) {
             startResetThresholdTimerIfNeeded();
-        } else if (result.getStatus() != null && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
-            cancelResetThresholdTimer();
         }
     }
 
