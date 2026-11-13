@@ -1358,6 +1358,34 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void stopCompletesWhenSynchronizerCloseDoesNotCompleteNext() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch nextCalled = new CountDownLatch(1);
+
+        // The only synchronizer returns a result that never arrives, and closing it does not complete that result.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new Synchronizer() {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> next() {
+                        nextCalled.countDown();
+                        return new LDAwaitFuture<>();
+                    }
+
+                    @Override
+                    public void close() {
+                    }
+                }));
+
+        // Start the data source, and wait until it asks the synchronizer for a result.
+        startDataSource(dataSource);
+        assertTrue(nextCalled.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // Stopping the data source ends its wait for the result.
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void noStatusEventsEmittedAfterOff() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         CountDownLatch workerBlocked = new CountDownLatch(1);

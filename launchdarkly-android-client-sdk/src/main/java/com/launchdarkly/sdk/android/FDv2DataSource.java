@@ -523,28 +523,32 @@ final class FDv2DataSource implements DataSource {
     }
 
     /**
-     * Waits for the future to complete, or until the given time.
+     * Waits for the future to complete, until the given time, or until the data source is stopped.
      *
      * @param future the future to wait for
      * @param time   the time to stop waiting, or null to wait until the future completes
      * @return true if the future completed
      * @throws InterruptedException if the thread is interrupted while waiting
      */
-    private static boolean awaitUntil(@NonNull Future<?> future, @Nullable MonotonicTime time)
+    private boolean awaitUntil(@NonNull Future<?> future, @Nullable MonotonicTime time)
             throws InterruptedException {
+        LDAwaitFuture<Object> waitEnded = new LDAwaitFuture<>();
+        Future<Object> futureOrStopped = LDFutures.anyOf(future, shutdownCause, waitEnded);
         try {
             if (time == null) {
-                future.get();
+                futureOrStopped.get();
             } else {
-                future.get(Math.max(0, MonotonicTime.now().nanosUntil(time)), TimeUnit.NANOSECONDS);
+                futureOrStopped.get(Math.max(0, MonotonicTime.now().nanosUntil(time)), TimeUnit.NANOSECONDS);
             }
-            return true;
         } catch (TimeoutException e) {
             return false;
         } catch (ExecutionException | CancellationException e) {
             // The future completed with an error, which the caller gets from the future.
-            return true;
+        } finally {
+            // Ends the race, so that anyOf removes its listeners from the long-lived shutdownCause.
+            waitEnded.set(null);
         }
+        return future.isDone();
     }
 
     /**
@@ -764,6 +768,9 @@ final class FDv2DataSource implements DataSource {
                     // The result the loop is waiting for, or null if it has not asked the synchronizer for one.
                     Future<FDv2SourceResult> nextFuture = null;
                     while (running) {
+                        if (stopCalled.get()) {
+                            return;
+                        }
                         if (nextFuture == null) {
                             nextFuture = synchronizer.next();
                         }
