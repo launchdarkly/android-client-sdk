@@ -361,9 +361,10 @@ final class SourceManager implements Closeable {
      */
     void closeActiveSource() {
         synchronized (activeSourceLock) {
-            if (activeSource != null) {
-                safeClose(activeSource);
-                activeSource = null;
+            Closeable source = activeSource;
+            activeSource = null;
+            if (source != null) {
+                safeClose(source);
             }
         }
     }
@@ -372,10 +373,7 @@ final class SourceManager implements Closeable {
     public void close() {
         synchronized (activeSourceLock) {
             isShutdown = true;
-            if (activeSource != null) {
-                safeClose(activeSource);
-                activeSource = null;
-            }
+            closeActiveSource();
         }
     }
 
@@ -385,7 +383,7 @@ final class SourceManager implements Closeable {
         }
         try {
             closeable.close();
-        } catch (IOException ignored) {
+        } catch (IOException | RuntimeException ignored) {
             // We are done with this source; ignore close errors.
         }
     }

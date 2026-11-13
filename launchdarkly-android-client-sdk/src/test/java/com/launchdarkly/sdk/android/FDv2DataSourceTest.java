@@ -1639,6 +1639,36 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void exceptionFromSynchronizerCloseDoesNotStopSynchronization() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch secondSyncStarted = new CountDownLatch(1);
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        // The first synchronizer reports a terminal error, and throws when the data source closes it.
+                        () -> new MockQueuedSynchronizer(terminalError()) {
+                            @Override
+                            public void close() {
+                                super.close();
+                                throw new IllegalStateException("close failed");
+                            }
+                        },
+                        // The second synchronizer records when it starts.
+                        () -> {
+                            secondSyncStarted.countDown();
+                            return new MockQueuedSynchronizer();
+                        }));
+
+        // Start the data source.
+        startDataSource(dataSource);
+
+        // The data source starts the second synchronizer.
+        assertTrue(secondSyncStarted.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void activeSourceClosedOnShutdown() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         AtomicBoolean syncClosed = new AtomicBoolean(false);
