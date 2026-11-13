@@ -107,6 +107,15 @@ public class EventStoreTest {
         return closed.get(0);
     }
 
+    // naming
+
+    @Test
+    public void anEnvironmentsEventsAreInADirectoryNamedAsItIsToldWithoutHashingItAgain() {
+        File directory = EventDirectory.defaultDirectory(new File("root"), "an-environment");
+        assertEquals("an-environment", directory.getName());
+        assertEquals("com.launchdarkly.events", directory.getParentFile().getName());
+    }
+
     // staging
 
     @Test

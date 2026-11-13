@@ -268,7 +268,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // summary would be. The track has nothing to wait for it about.
         CountDownLatch commitStalled = new CountDownLatch(1);
         CountDownLatch commitResumes = new CountDownLatch(1);
-        EventStore store = new EventStore(EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY),
+        EventStore store = new EventStore(environmentDirectory(),
                 DEFAULT_CAPACITY, true, logging.logger) {
             @Override
             void commit() {
@@ -730,7 +730,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
                 store.stage("{\"kind\":\"custom\",\"key\":\"vanished\"}".getBytes(StandardCharsets.UTF_8));
                 store.commit();
-                File[] logs = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY)
+                File[] logs = environmentDirectory()
                         .listFiles((dir, name) -> name.startsWith(EventDirectory.LOG_PREFIX));
                 assertNotNull(logs);
                 assertEquals(1, logs.length);
@@ -774,6 +774,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         return null;
     }
 
+    private File environmentDirectory() {
+        return EventDirectory.defaultDirectory(eventsDirectory.getRoot(), LDUtil.hashedStorageName(MOBILE_KEY));
+    }
+
     /** @return how many events of this kind the store holds, read as another process would read it */
     /**
      * Every event in the environment's directory, read straight off the disk the way a process starting after a
@@ -781,7 +785,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
      */
     private List<byte[]> payloadsOnDisk() throws IOException {
         List<byte[]> payloads = new ArrayList<>();
-        File[] files = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY).listFiles();
+        File[] files = environmentDirectory().listFiles();
         if (files == null) {
             return payloads;
         }
@@ -2837,7 +2841,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         assumePersisting();
         try (HttpServer server = HttpServer.start(Handlers.status(202))) {
             EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(DEFAULT_CAPACITY), true);
-            File directory = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY);
+            File directory = environmentDirectory();
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
                 assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -2988,7 +2992,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void theFirstFlushAfterADamagedLogFromAPreviousRunHearsOfTheLoss() throws Exception {
         assumePersisting();
-        File directory = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY);
+        File directory = environmentDirectory();
         assertTrue(directory.mkdirs() || directory.isDirectory());
         // A header and then a frame whose checksum does not match, as storage that damaged it leaves it.
         ByteArrayOutputStream log = new ByteArrayOutputStream();
