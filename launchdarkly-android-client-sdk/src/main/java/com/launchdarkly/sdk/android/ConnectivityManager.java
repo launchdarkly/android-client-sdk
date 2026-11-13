@@ -91,6 +91,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     // A new instance is created for each data source, using the view that was current at the time.
     private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink, DataSourceUpdateSinkV2 {
         private final ContextDataManager.ContextDataManagerView view;
+        // True if the last FDv2 status that this sink recorded was a failure.
+        private boolean failed;
 
         DataSourceUpdateSinkImpl(ContextDataManager.ContextDataManagerView view) {
             this.view = view;
@@ -127,13 +129,18 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             if (publicMode == null) {
                 return;
             }
-            if (failure == null) {
-                if (state == DataSourceState.INTERRUPTED) {
-                    // INTERRUPTED with no error is not a successful connection, and it has no new error to record.
+            if (state == DataSourceState.INTERRUPTED && failure == null) {
+                if (failed) {
+                    // Keep the error that is already recorded.
                     return;
                 }
+                failure = new LDFailure("Data source interrupted", LDFailure.FailureType.UNKNOWN_ERROR);
+            }
+            if (failure == null) {
+                failed = false;
                 updateConnectionInfoForSuccess(publicMode);
             } else {
+                failed = true;
                 updateConnectionInfoForError(publicMode, failure);
             }
         }

@@ -389,6 +389,38 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void fdv2InterruptedStatusWithoutErrorAfterSuccessIsAFailure() throws ExecutionException {
+        eventProcessor.setOffline(false); // we expect this call
+        eventProcessor.setInBackground(false); // we expect this call
+        replayAll();
+
+        // The data source reports VALID, and then INTERRUPTED with no error.
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext -> new DataSource() {
+            @Override
+            public void start(@NonNull Callback<Boolean> resultCallback) {
+                new Thread(() -> {
+                    DataSourceUpdateSinkV2 sink = (DataSourceUpdateSinkV2) clientContext.getDataSourceUpdateSink();
+                    sink.setStatus(DataSourceState.VALID, null);
+                    sink.setStatus(DataSourceState.INTERRUPTED, null);
+                    resultCallback.onSuccess(true);
+                }).start();
+            }
+
+            @Override
+            public void stop(@NonNull Callback<Void> completionCallback) {}
+        };
+
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer);
+
+        awaitStartUp();
+        verifyAll();
+
+        // The status with no error records a failure.
+        assertNotNull(connectivityManager.getConnectionInformation().getLastFailure());
+        assertNotNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
+    }
+
+    @Test
     public void setOfflineAfterInit() throws Exception {
         eventProcessor.setOffline(false); // we expect this call
         eventProcessor.setInBackground(false); // we expect this call
