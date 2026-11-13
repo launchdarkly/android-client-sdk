@@ -197,6 +197,15 @@ public class LDUtil {
         }
     }
 
+    /**
+     * A name for what is stored for a mobile key, safe as a filename and not holding the key itself.
+     * Not {@link #urlSafeBase64Hash(String)}, for the reasons {@link #hexDigest} gives.
+     */
+    static String hashedStorageName(String mobileKey) {
+        // Half a digest, which is far more than enough to keep two mobile keys apart.
+        return hexDigest(mobileKey, 16);
+    }
+
     static String urlSafeBase64(LDContext context) {
         return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
                 Base64.URL_SAFE + Base64.NO_WRAP);

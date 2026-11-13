@@ -230,9 +230,9 @@ class EventStore implements Closeable {
             boolean persistEvents,
             LDLogger logger
     ) {
-        return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), capacity,
-                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
-                persistEvents, logger);
+        File directory = EventDirectory.defaultDirectory(noBackupFilesDir, LDUtil.hashedStorageName(mobileKey));
+        return new EventStore(directory, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
+                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
     /**
@@ -255,7 +255,8 @@ class EventStore implements Closeable {
             LDLogger logger
     ) {
         EventDirectory.Location location =
-                () -> EventDirectory.defaultDirectory(platformState.getNoBackupFilesDir(), mobileKey);
+                () -> EventDirectory.defaultDirectory(platformState.getNoBackupFilesDir(),
+                        LDUtil.hashedStorageName(mobileKey));
         return new EventStore(location, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 

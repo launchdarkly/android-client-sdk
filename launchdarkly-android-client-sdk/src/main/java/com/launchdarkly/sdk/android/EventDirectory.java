@@ -1147,17 +1147,12 @@ class EventDirectory {
 
     // ---- naming ----
 
-    /** The directory the store for one environment belongs in. */
-    static File defaultDirectory(File noBackupFilesDir, String mobileKey) {
-        return new File(new File(noBackupFilesDir, DIRECTORY_NAME), environmentDirectoryName(mobileKey));
-    }
-
     /**
-     * Names the directory for one environment, hashed so the mobile key itself is never a filename.
-     * Not {@link LDUtil#urlSafeBase64Hash(String)}, for the reasons {@link LDUtil#hexDigest} gives.
+     * The directory the store for one environment belongs in.
+     *
+     * @param environmentName used as it is, so it has to be safe as a filename and hold nothing secret
      */
-    private static String environmentDirectoryName(String mobileKey) {
-        // Half a digest, which is far more than enough to keep two mobile keys apart.
-        return LDUtil.hexDigest(mobileKey, 16);
+    static File defaultDirectory(File noBackupFilesDir, String environmentName) {
+        return new File(new File(noBackupFilesDir, DIRECTORY_NAME), environmentName);
     }
 }
