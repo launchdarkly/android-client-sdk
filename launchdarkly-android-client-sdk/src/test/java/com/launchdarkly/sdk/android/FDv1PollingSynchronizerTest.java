@@ -119,6 +119,56 @@ public class FDv1PollingSynchronizerTest {
     }
 
     @Test
+    public void resetThresholdMetIsReportedOnSecondConsecutiveSuccessfulPoll() throws Exception {
+        MockFetcher fetcher = new MockFetcher();
+        for (int i = 0; i < 3; i++) {
+            fetcher.queueSuccess(VALID_FDV1_JSON);
+        }
+
+        FDv1PollingSynchronizer sync = makeSynchronizer(fetcher, 0, 10);
+        try {
+            // Read the results of three consecutive successful polls.
+            FDv2SourceResult first = sync.next().get(5, TimeUnit.SECONDS);
+            FDv2SourceResult second = sync.next().get(5, TimeUnit.SECONDS);
+            FDv2SourceResult third = sync.next().get(5, TimeUnit.SECONDS);
+
+            // Only the second successful poll reports that the reset threshold was met.
+            assertFalse(first.isResetThresholdMet());
+            assertTrue(second.isResetThresholdMet());
+            assertFalse(third.isResetThresholdMet());
+        } finally {
+            sync.close();
+        }
+    }
+
+    @Test
+    public void failedPollRestartsResetThresholdCount() throws Exception {
+        MockFetcher fetcher = new MockFetcher();
+        fetcher.queueSuccess(VALID_FDV1_JSON);
+        fetcher.queueError(new IOException("network error"));
+        fetcher.queueSuccess(VALID_FDV1_JSON);
+        fetcher.queueSuccess(VALID_FDV1_JSON);
+
+        FDv1PollingSynchronizer sync = makeSynchronizer(fetcher, 0, 10);
+        try {
+            // Read the results of a successful poll, a failed poll, and two more successful polls.
+            FDv2SourceResult successBeforeFailure = sync.next().get(5, TimeUnit.SECONDS);
+            FDv2SourceResult failure = sync.next().get(5, TimeUnit.SECONDS);
+            FDv2SourceResult firstSuccessAfterFailure = sync.next().get(5, TimeUnit.SECONDS);
+            FDv2SourceResult secondSuccessAfterFailure = sync.next().get(5, TimeUnit.SECONDS);
+
+            // The failure restarts the count, so the threshold is met on the second success after it.
+            assertFalse(successBeforeFailure.isResetThresholdMet());
+            assertEquals(SourceSignal.INTERRUPTED, failure.getStatus().getState());
+            assertFalse(failure.isResetThresholdMet());
+            assertFalse(firstSuccessAfterFailure.isResetThresholdMet());
+            assertTrue(secondSuccessAfterFailure.isResetThresholdMet());
+        } finally {
+            sync.close();
+        }
+    }
+
+    @Test
     public void nonRecoverableHttpErrorReturnsTerminalError() throws Exception {
         MockFetcher fetcher = new MockFetcher();
         fetcher.queueError(new LDInvalidResponseCodeFailure(
