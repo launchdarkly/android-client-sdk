@@ -306,7 +306,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     }
 
     /**
-     * Stops the reset threshold timer of the current stream. Call this when the stream ends.
+     * Stops the reset threshold timer of the current stream. Call this when the stream ends or fails.
      */
     private void cancelResetThresholdTimer() {
         synchronized (resetThresholdLock) {
@@ -436,6 +436,9 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 if (errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.MISSING_PAYLOAD ||
                         errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.JSON_ERROR) {
                     restartStream(true);
+                } else {
+                    // The stream stays open, but the failure restarts the measurement of healthy operation.
+                    cancelResetThresholdTimer();
                 }
                 break;
             }

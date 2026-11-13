@@ -27,12 +27,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class FDv2StreamingSynchronizerTest {
@@ -267,6 +269,44 @@ public class FDv2StreamingSynchronizerTest {
                 assertEquals(SourceResultType.CHANGE_SET, secondStreamChangeSet.getResultType());
                 assertFalse(secondStreamChangeSet.isResetThresholdMet());
                 assertTrue(reset.isResetThresholdMet());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void failureThatKeepsStreamOpenCancelsPendingResetThresholdReport() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+        String unknownEvent = makeEvent("unknown-event-type", "{}");
+
+        // The stream sends a change set and then an event that it reports as a failure, and stays open.
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.event(unknownEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), 100, 250);
+
+            try {
+                // Read the change set and the failure, then wait past the reset threshold for another result.
+                FDv2SourceResult changeSet = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult failure = sync.next().get(5, TimeUnit.SECONDS);
+                Future<FDv2SourceResult> afterFailure = sync.next();
+                FDv2SourceResult unexpected = null;
+                try {
+                    unexpected = afterFailure.get(500, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    // No result arrived, which is what the test expects.
+                }
+
+                // The failure cancels the timer, so the stream does not report that the reset threshold was met.
+                assertEquals(SourceResultType.CHANGE_SET, changeSet.getResultType());
+                assertEquals(SourceSignal.INTERRUPTED, failure.getStatus().getState());
+                assertNull(unexpected);
             } finally {
                 sync.close();
             }
