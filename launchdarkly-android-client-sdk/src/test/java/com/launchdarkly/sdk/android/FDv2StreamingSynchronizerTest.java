@@ -1304,6 +1304,89 @@ public class FDv2StreamingSynchronizerTest {
         }
     }
 
+    @Test
+    public void changeSetFromPingPollStartsResetThresholdTimer() throws Exception {
+        String pingEvent = makeEvent("ping", "{}");
+
+        // The stream sends only a ping, and stays open. The poll returns a change set.
+        try (HttpServer pollServer = HttpServer.start(Handlers.bodyJson(VALID_POLL_RESPONSE_JSON));
+             HttpServer streamServer = HttpServer.start(Handlers.all(
+                     Handlers.SSE.start(),
+                     Handlers.SSE.event(pingEvent),
+                     Handlers.SSE.leaveOpen()))) {
+
+            DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
+                    CONTEXT, pollServer.getUri(),
+                    POLL_GET_PATH, POLL_REPORT_PATH,
+                    httpProperties(), false, false, null, LOGGER);
+
+            FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
+                    CONTEXT, EMPTY_SELECTOR_SOURCE, streamServer.getUri(), STREAM_PATH,
+                    requestor, 100, 100, false, false,
+                    httpProperties(), executor, scheduler, LOGGER, null);
+
+            try {
+                // Read the change set from the poll, then the result that follows while the stream stays open.
+                FDv2SourceResult changeSet = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult reset = sync.next().get(5, TimeUnit.SECONDS);
+
+                // The stream reports that the reset threshold was met.
+                assertEquals(SourceResultType.CHANGE_SET, changeSet.getResultType());
+                assertFalse(changeSet.isResetThresholdMet());
+                assertTrue(reset.isResetThresholdMet());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void failedPingPollCancelsPendingResetThresholdReport() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+        String pingEvent = makeEvent("ping", "{}");
+
+        // The stream sends a change set and then a ping, and stays open. The poll fails.
+        try (HttpServer pollServer = HttpServer.start(Handlers.status(500));
+             HttpServer streamServer = HttpServer.start(Handlers.all(
+                     Handlers.SSE.start(),
+                     Handlers.SSE.event(serverIntent),
+                     Handlers.SSE.event(payloadTransferred),
+                     Handlers.SSE.event(pingEvent),
+                     Handlers.SSE.leaveOpen()))) {
+
+            DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
+                    CONTEXT, pollServer.getUri(),
+                    POLL_GET_PATH, POLL_REPORT_PATH,
+                    httpProperties(), false, false, null, LOGGER);
+
+            FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
+                    CONTEXT, EMPTY_SELECTOR_SOURCE, streamServer.getUri(), STREAM_PATH,
+                    requestor, 100, 250, false, false,
+                    httpProperties(), executor, scheduler, LOGGER, null);
+
+            try {
+                // Read the change set and the failure, then wait past the reset threshold for another result.
+                FDv2SourceResult changeSet = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult failure = sync.next().get(5, TimeUnit.SECONDS);
+                Future<FDv2SourceResult> afterFailure = sync.next();
+                FDv2SourceResult unexpected = null;
+                try {
+                    unexpected = afterFailure.get(500, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    // No result arrived, which is what the test expects.
+                }
+
+                // The failure cancels the timer, so the stream does not report that the reset threshold was met.
+                assertEquals(SourceResultType.CHANGE_SET, changeSet.getResultType());
+                assertEquals(SourceSignal.INTERRUPTED, failure.getStatus().getState());
+                assertNull(unexpected);
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
     // ---- requestor lifecycle ----
 
     @Test

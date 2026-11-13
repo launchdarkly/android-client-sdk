@@ -24,6 +24,8 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.Selector;
+import com.launchdarkly.sdk.fdv2.SourceResultType;
+import com.launchdarkly.sdk.fdv2.SourceSignal;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.fdv2.payloads.FDv2Event;
@@ -462,6 +464,11 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         logger.debug("Stream received ping; fetching payload via poll");
         FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, logger, selectorSource.getSelector(), false);
         resultQueue.put(result);
+        if (result.getResultType() == SourceResultType.CHANGE_SET) {
+            startResetThresholdTimerIfNeeded();
+        } else if (result.getStatus() != null && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
+            cancelResetThresholdTimer();
+        }
     }
 
     private void handleError(FaultEvent event) {
