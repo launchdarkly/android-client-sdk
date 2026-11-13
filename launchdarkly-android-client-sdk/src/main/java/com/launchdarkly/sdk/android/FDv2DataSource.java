@@ -571,12 +571,13 @@ final class FDv2DataSource implements DataSource {
     /**
      * Waits for the given time, or until the data source is stopped.
      *
-     * @param millis the time to wait, in milliseconds
+     * @param time the time to wait
+     * @param unit the unit of the time
      * @return true if the full time passed, or false if the data source was stopped
      */
-    private boolean waitUnlessStopped(long millis) {
+    private boolean waitUnlessStopped(long time, @NonNull TimeUnit unit) {
         try {
-            shutdownCause.get(Math.max(0, millis), TimeUnit.MILLISECONDS);
+            shutdownCause.get(Math.max(0, time), unit);
             return false;
         } catch (TimeoutException e) {
             return true;
@@ -672,7 +673,7 @@ final class FDv2DataSource implements DataSource {
             } catch (RuntimeException e) {
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
                 parkActiveSynchronizer(null, e);
-                if (!waitUnlessStopped(jittered(failoverDelayMillis))) {
+                if (!waitUnlessStopped(jittered(failoverDelayMillis), TimeUnit.MILLISECONDS)) {
                     return null;
                 }
                 continue;
@@ -686,25 +687,25 @@ final class FDv2DataSource implements DataSource {
 
             MonotonicTime earliestUnparkTime = sourceManager.getEarliestUnparkTime();
             MonotonicTime fallbackEndTime = sourceManager.getFDv1FallbackEndTime();
-            long waitMillis;
+            long waitNanos;
             if (earliestUnparkTime == null && fallbackEndTime == null) {
                 // This should never happen.
-                waitMillis = parkInitialDelayMillis;
+                waitNanos = TimeUnit.MILLISECONDS.toNanos(parkInitialDelayMillis);
                 logger.error("No synchronizer can be started; checking again in {}s.",
-                        TimeUnit.MILLISECONDS.toSeconds(waitMillis));
+                        TimeUnit.NANOSECONDS.toSeconds(waitNanos));
             } else if (earliestUnparkTime == null) {
-                waitMillis = TimeUnit.NANOSECONDS.toMillis(MonotonicTime.now().nanosUntil(fallbackEndTime));
+                waitNanos = MonotonicTime.now().nanosUntil(fallbackEndTime);
                 logger.warn("No synchronizer is available until the FDv1 fallback ends in {}s.",
-                        Math.max(0, TimeUnit.MILLISECONDS.toSeconds(waitMillis)));
+                        Math.max(0, TimeUnit.NANOSECONDS.toSeconds(waitNanos)));
             } else {
                 MonotonicTime earliest = earliest(earliestUnparkTime, fallbackEndTime);
-                waitMillis = TimeUnit.NANOSECONDS.toMillis(MonotonicTime.now().nanosUntil(earliest));
+                waitNanos = MonotonicTime.now().nanosUntil(earliest);
                 logger.warn("All synchronizers are backing off for at least {}s.",
-                        Math.max(0, TimeUnit.MILLISECONDS.toSeconds(waitMillis)));
+                        Math.max(0, TimeUnit.NANOSECONDS.toSeconds(waitNanos)));
             }
             // No synchronizer is running until the wait ends.
             sink.setStatus(DataSourceState.INTERRUPTED, null);
-            if (!waitUnlessStopped(waitMillis)) {
+            if (!waitUnlessStopped(waitNanos, TimeUnit.NANOSECONDS)) {
                 return null;
             }
             // Start the most-preferred synchronizer that is no longer parked.
@@ -953,7 +954,7 @@ final class FDv2DataSource implements DataSource {
                 // The run of this synchronizer has ended, so stop it.
                 sourceManager.closeActiveSource();
 
-                if (parked && !waitUnlessStopped(jittered(failoverDelayMillis))) {
+                if (parked && !waitUnlessStopped(jittered(failoverDelayMillis), TimeUnit.MILLISECONDS)) {
                     break;
                 }
                 synchronizer = buildNextAvailableSynchronizer(sink);
