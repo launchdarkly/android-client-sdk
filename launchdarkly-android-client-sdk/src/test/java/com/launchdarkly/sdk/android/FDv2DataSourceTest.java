@@ -2504,6 +2504,42 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource);
     }
 
+    // When the fallback TTL ends before an FDv2 synchronizer's unpark time, that synchronizer stays parked.
+    @Test
+    public void fdv1FallbackEndsWhileFDv2SynchronizerIsParked() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger fdv2BuildCount = new AtomicInteger();
+
+        // The FDv2 synchronizer fails with the directive, so the data source parks it for minutes. The FDv1 fallback
+        // synchronizer sends a payload. The fallback TTL ends after 50-100ms.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> {
+                    fdv2BuildCount.incrementAndGet();
+                    return new MockQueuedSynchronizer(FDv2SourceResult.status(
+                            FDv2SourceResult.Status.terminalError(new RuntimeException("terminal error")), true));
+                }),
+                () -> new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ TimeUnit.MINUTES.toMillis(5),
+                /* parkMaxDelayMillis= */ TimeUnit.HOURS.toMillis(1),
+                /* failoverDelayMillis= */ 10,
+                /* fdv1FallbackTtlMillis= */ 100);
+
+        // Start the data source.
+        startDataSource(dataSource);
+
+        // The FDv1 data is applied. After the TTL, the FDv2 synchronizer is still parked, so nothing runs.
+        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(Arrays.asList(
+                DataSourceState.INTERRUPTED,
+                DataSourceState.VALID,
+                DataSourceState.INTERRUPTED), statuses);
+        assertEquals(1, fdv2BuildCount.get());
+        stopDataSource(dataSource);
+    }
+
     // A directive during the FDv1 fallback replaces the TTL, and the FDv1 synchronizer keeps running.
     @Test
     public void directiveDuringFDv1FallbackExtendsTTL() throws Exception {
