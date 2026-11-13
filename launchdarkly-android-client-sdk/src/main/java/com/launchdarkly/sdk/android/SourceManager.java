@@ -48,7 +48,6 @@ final class SourceManager implements Closeable {
 
     /**
      * Reset the synchronizer index to -1 so the next call starts from the first available.
-     * Used when recovering to the prime synchronizer.
      */
     void resetSourceIndex() {
         synchronized (activeSourceLock) {
@@ -56,7 +55,7 @@ final class SourceManager implements Closeable {
         }
     }
 
-    /** True if any synchronizer is marked as FDv1 fallback (Android: not used yet). */
+    /** True if any synchronizer is marked as FDv1 fallback. */
     boolean hasFDv1Fallback() {
         for (SynchronizerFactoryWithState s : synchronizerFactories) {
             if (s.isFDv1Fallback()) {

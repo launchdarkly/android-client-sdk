@@ -689,7 +689,7 @@ final class FDv2DataSource implements DataSource {
             MonotonicTime fallbackEndTime = sourceManager.getFDv1FallbackEndTime();
             long waitNanos;
             if (earliestUnparkTime == null && fallbackEndTime == null) {
-                // This should never happen.
+                // This happens when the FDv1 fallback ends and no FDv2 synchronizer is configured.
                 waitNanos = TimeUnit.MILLISECONDS.toNanos(parkInitialDelayMillis);
                 logger.error("No synchronizer can be started; checking again in {}s.",
                         TimeUnit.NANOSECONDS.toSeconds(waitNanos));
