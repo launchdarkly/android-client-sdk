@@ -44,7 +44,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: CI check
         uses: ./.github/actions/ci
@@ -54,7 +54,7 @@ jobs:
           java_version: '17'
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.1.0
+      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.1
         name: Get secrets
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
