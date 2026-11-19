@@ -15,10 +15,9 @@ start-contract-test-service:
 
 # Note that only the last version of the tests have the stop-service-at-end flag set, so the contract test service will be stopped after the tests are run.
 run-contract-tests:
-	@echo "Running SDK contract test v2..."
-	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
-      -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v2/downloader/run.sh \
-      | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -skip-from $(SUPPRESSION_FILE) $(TEST_HARNESS_PARAMS_V2)" sh
+	@echo "Running SDK contract test v2 with the probe harness..."
+	@scripts/build-probe-harness.sh
+	@/tmp/probe-harness/sdk-test-harness -url http://localhost:8001 -host 10.0.2.2 -debug -skip-from $(SUPPRESSION_FILE) $(TEST_HARNESS_PARAMS_V2)
 	@echo "Running SDK contract test v3..."
 	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
       -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v3.2.0-alpha.10/downloader/run.sh \
