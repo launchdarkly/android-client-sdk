@@ -6,7 +6,7 @@
 set -euo pipefail
 
 BRANCH=rlamb/summary-dates-clock-offset
-EXPECTED_SHA=e987cdffc83a98b959783df79276cff9629d8a7c
+EXPECTED_SHA=191d1fd0af8f7857f17970f4bd8ce1d56f0d53e3
 DIR=/tmp/probe-harness
 
 rm -rf "$DIR"
