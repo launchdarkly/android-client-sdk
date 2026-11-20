@@ -33,13 +33,18 @@ public class TestService extends NanoHTTPD {
             "service-endpoints",
             "singleton",
             "strongly-typed",
+            "context-type",
+            "context-comparison",
             "tags",
+            "wrapper",
             "auto-env-attributes",
             "inline-context-all",
             "anonymous-redaction",
             "client-prereq-events",
             "client-prereq-cycle-detection",
             "polling-gzip",
+            "event-gzip",
+            "optional-event-gzip",
             "evaluation-hooks",
             "track-hooks",
             "client-per-context-summaries",
@@ -48,7 +53,8 @@ public class TestService extends NanoHTTPD {
             "retry-conformance-fdv1-polling",
             "client-use-post",
             "filtering",
-            "filtering-strict"
+            "filtering-strict",
+            "fdv1-fallback"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()
