@@ -87,7 +87,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected EventPersistence eventPersistence = DEFAULT_EVENT_PERSISTENCE;
 
     /**
-     * The most bytes of events kept for all environments together where events are persisted
+     * The most bytes of events kept for each environment where events are persisted
      */
     protected long capacityBytes = DEFAULT_CAPACITY_BYTES;
 
@@ -191,17 +191,15 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     }
 
     /**
-     * Sets the maximum number of bytes of events the SDK keeps, on disk and in memory together, whatever
-     * {@link #eventPersistence(EventPersistence)} is.
+     * Sets the maximum number of bytes of events the SDK keeps for each environment, on disk and in memory
+     * together, whatever {@link #eventPersistence(EventPersistence)} is.
      * <p>
-     * It is for every environment the application configures together: with
-     * {@link com.launchdarkly.sdk.android.LDConfig.Builder#secondaryMobileKeys(java.util.Map)}, each
-     * environment gets an equal share of it. That is unlike {@link #capacity(int)}, which each environment
-     * has in full.
+     * Like {@link #capacity(int)}, each environment in
+     * {@link com.launchdarkly.sdk.android.LDConfig.Builder#secondaryMobileKeys(java.util.Map)} has it in full.
      * <p>
-     * When an environment reaches its share, the SDK discards new events until it successfully delivers the stored ones, as
+     * When an environment reaches it, the SDK discards new events until it successfully delivers the stored ones, as
      * it does when {@link #capacity(int)} is reached; it never deletes stored events to make room. A fifth
-     * of each share is kept for the summaries of flag evaluations, so that evaluations are still counted after
+     * of it is kept for the summaries of flag evaluations, so that evaluations are still counted after
      * full events start being discarded.
      * <p>
      * Ordinary events reach {@link #capacity(int)} long before this. It binds where events are unusually
@@ -209,7 +207,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * accumulate. The default value is {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the
      * default.
      *
-     * @param capacityBytes the most bytes of events to keep, for all environments together
+     * @param capacityBytes the most bytes of events to keep, for each environment
      * @return the builder
      */
     public EventProcessorBuilder capacityBytes(long capacityBytes) {
