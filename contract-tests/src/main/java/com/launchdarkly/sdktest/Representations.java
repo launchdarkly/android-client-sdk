@@ -60,6 +60,7 @@ public abstract class Representations {
         boolean enableDiagnostics;
         String[] globalPrivateAttributes;
         Long flushIntervalMs;
+        Boolean enableGzip;
     }
 
     public static class SdkConfigTagParams {
