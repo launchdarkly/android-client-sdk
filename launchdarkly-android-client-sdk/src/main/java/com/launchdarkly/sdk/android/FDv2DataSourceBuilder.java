@@ -174,7 +174,8 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 sharedExecutor,
                 impl.getPlatformState().getCacheDir(),
                 clientContext.getBaseLogger(),
-                impl.getPerEnvironmentDataIfAvailable()
+                impl.getPerEnvironmentDataIfAvailable(),
+                LDUtil.payloadFilter(clientContext)
         );
     }
 

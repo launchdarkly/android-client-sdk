@@ -13,9 +13,11 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
+import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
+import java.net.URI;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -177,6 +179,16 @@ public class LDUtil {
     static String urlSafeBase64(LDContext context) {
         return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
                 Base64.URL_SAFE + Base64.NO_WRAP);
+    }
+
+    @Nullable
+    static String payloadFilter(ClientContext clientContext) {
+        LDConfig config = clientContext.getConfig();
+        return config == null ? null : config.getPayloadFilter();
+    }
+
+    static URI withPayloadFilter(URI uri, @Nullable String payloadFilter) {
+        return payloadFilter == null ? uri : HttpHelpers.addQueryParam(uri, "filter", payloadFilter);
     }
 
     static HttpProperties makeHttpProperties(ClientContext clientContext) {
