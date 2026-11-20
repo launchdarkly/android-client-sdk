@@ -40,6 +40,7 @@ public abstract class Representations {
         SdkConfigServiceEndpointParams serviceEndpoints;
         SdkConfigHookParams hooks;
         SdkConfigDataSystemParams dataSystem;
+        SdkConfigWrapperParams wrapper;
     }
 
     public static class SdkConfigStreamParams {
@@ -66,6 +67,11 @@ public abstract class Representations {
         String applicationName;
         String applicationVersion;
         String applicationVersionName;
+    }
+
+    public static class SdkConfigWrapperParams {
+        String name;
+        String version;
     }
 
     public static class SdkConfigServiceEndpointParams {
@@ -109,6 +115,7 @@ public abstract class Representations {
         SdkConfigConnectionModeConfig connectionModeConfig;
         List<SdkConfigDataInitializer> initializers;
         List<SdkConfigDataSynchronizer> synchronizers;
+        SdkConfigPollParams fdv1Fallback;
     }
 
     public static class SdkConfigConnectionModeConfig {
@@ -138,6 +145,7 @@ public abstract class Representations {
         CustomEventParams customEvent;
         ContextBuildParams contextBuild;
         ContextConvertParams contextConvert;
+        ContextComparisonPairParams contextComparison;
     }
 
     public static class EvaluateFlagParams {
@@ -208,5 +216,36 @@ public abstract class Representations {
 
     public static class ContextConvertParams {
         String input;
+    }
+
+    public static class ContextComparisonPairParams {
+        ContextComparisonParams context1;
+        ContextComparisonParams context2;
+    }
+
+    public static class ContextComparisonParams {
+        ContextComparisonSingleParams single;
+        ContextComparisonSingleParams[] multi;
+    }
+
+    public static class ContextComparisonSingleParams {
+        String kind;
+        String key;
+        AttributeDefinition[] attributes;
+        PrivateAttribute[] privateAttributes;
+    }
+
+    public static class AttributeDefinition {
+        String name;
+        LDValue value;
+    }
+
+    public static class PrivateAttribute {
+        String value;
+        boolean literal;
+    }
+
+    public static class ContextComparisonResponse {
+        boolean equals;
     }
 }

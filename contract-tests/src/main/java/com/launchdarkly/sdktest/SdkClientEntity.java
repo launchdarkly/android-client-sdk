@@ -2,6 +2,7 @@ package com.launchdarkly.sdktest;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextBuilder;
 import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
@@ -21,6 +22,7 @@ import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.InitializerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingInitializerEntry;
@@ -31,10 +33,15 @@ import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.SynchronizerEntry;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
+import com.launchdarkly.sdktest.Representations.AttributeDefinition;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildResponse;
 import com.launchdarkly.sdktest.Representations.ContextBuildSingleParams;
+import com.launchdarkly.sdktest.Representations.ContextComparisonPairParams;
+import com.launchdarkly.sdktest.Representations.ContextComparisonParams;
+import com.launchdarkly.sdktest.Representations.ContextComparisonResponse;
+import com.launchdarkly.sdktest.Representations.ContextComparisonSingleParams;
 import com.launchdarkly.sdktest.Representations.ContextConvertParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.CustomEventParams;
@@ -46,6 +53,7 @@ import com.launchdarkly.sdktest.Representations.HookConfig;
 import com.launchdarkly.sdktest.Representations.HookData;
 import com.launchdarkly.sdktest.Representations.HookErrors;
 import com.launchdarkly.sdktest.Representations.IdentifyEventParams;
+import com.launchdarkly.sdktest.Representations.PrivateAttribute;
 import com.launchdarkly.sdktest.Representations.SdkConfigParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigDataSystemParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigConnectionModeConfig;
@@ -128,6 +136,8 @@ public class SdkClientEntity {
         return doContextBuild(params.contextBuild);
       case "contextConvert":
         return doContextConvert(params.contextConvert);
+      case "contextComparison":
+        return doContextComparison(params.contextComparison);
       default:
         throw new TestService.BadRequestException("unknown command: " + params.command);
     }
@@ -268,6 +278,41 @@ public class SdkClientEntity {
     return resp;
   }
 
+  private ContextComparisonResponse doContextComparison(ContextComparisonPairParams params) {
+    LDContext c1 = doContextComparisonBuild(params.context1);
+    LDContext c2 = doContextComparisonBuild(params.context2);
+    ContextComparisonResponse resp = new ContextComparisonResponse();
+    resp.equals = c1.equals(c2);
+    return resp;
+  }
+
+  private LDContext doContextComparisonBuild(ContextComparisonParams params) {
+    if (params.multi == null) {
+      return doContextComparisonBuildSingle(params.single);
+    }
+    ContextMultiBuilder b = LDContext.multiBuilder();
+    for (ContextComparisonSingleParams s: params.multi) {
+      b.add(doContextComparisonBuildSingle(s));
+    }
+    return b.build();
+  }
+
+  private LDContext doContextComparisonBuildSingle(ContextComparisonSingleParams params) {
+    ContextBuilder b = LDContext.builder(params.key).kind(params.kind);
+    if (params.attributes != null) {
+      for (AttributeDefinition attr: params.attributes) {
+        b.set(attr.name, LDValue.normalize(attr.value));
+      }
+    }
+    if (params.privateAttributes != null) {
+      for (PrivateAttribute attr: params.privateAttributes) {
+        b.privateAttributes(attr.literal ?
+                AttributeRef.fromLiteral(attr.value) : AttributeRef.fromPath(attr.value));
+      }
+    }
+    return b.build();
+  }
+
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
     LDConfig.Builder builder = new LDConfig.Builder(params.clientSide.includeEnvironmentAttributes ?
             LDConfig.Builder.AutoEnvAttributes.Enabled : LDConfig.Builder.AutoEnvAttributes.Disabled);
@@ -284,6 +329,11 @@ public class SdkClientEntity {
     ConfigHelper.configureIsolatedInMemoryPersistence(builder);
 
     if (params.dataSystem != null) {
+      // The SDK's FDv1 fallback synchronizer polls the top-level polling endpoint. It has
+      // no option for its poll interval, so pollIntervalMs is not used.
+      if (params.dataSystem.fdv1Fallback != null && params.dataSystem.fdv1Fallback.baseUri != null) {
+        endpoints.polling(params.dataSystem.fdv1Fallback.baseUri);
+      }
       configureDataSystem(builder, params.dataSystem);
     } else {
       if (params.polling != null && params.polling.baseUri != null) {
@@ -328,11 +378,17 @@ public class SdkClientEntity {
     }
 
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.http(
-            Components.httpConfiguration()
-                    .useReport(params.clientSide.useReport)
-                    .usePost(params.clientSide.usePost)
-    );
+    HttpConfigurationBuilder httpBuilder = Components.httpConfiguration()
+            .useReport(params.clientSide.useReport)
+            .usePost(params.clientSide.usePost);
+    // The harness sends an empty string for an unset wrapper name or version. The SDK
+    // would put an empty string in the header as given, so treat it as unset.
+    if (params.wrapper != null && params.wrapper.name != null && !params.wrapper.name.isEmpty()) {
+      String wrapperVersion = params.wrapper.version != null && !params.wrapper.version.isEmpty() ?
+              params.wrapper.version : null;
+      httpBuilder.wrapper(params.wrapper.name, wrapperVersion);
+    }
+    builder.http(httpBuilder);
 
     if (params.tags != null) {
       ApplicationInfoBuilder ab = Components.applicationInfo();
