@@ -57,9 +57,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final long DEFAULT_CAPACITY_BYTES = 20L * 1024 * 1024;
 
     /**
-     * The default value for {@link #maxAgeMillis(long)}: 7 days.
+     * The default value for {@link #maxAgeMillis(long)}: 24 hours.
      */
-    public static final long DEFAULT_MAX_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000;
+    public static final long DEFAULT_MAX_AGE_MILLIS = 24L * 60 * 60 * 1000;
 
     /**
      * All attributes should be treated as private
