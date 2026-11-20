@@ -651,7 +651,10 @@ public class LDClient implements LDClientInterface, Closeable {
         EvaluationDetail<LDValue> result;
 
         if (flag == null) {
-            if (unknownFlagsReported.size() < MAX_UNKNOWN_FLAGS_REPORTED && unknownFlagsReported.add(key)) {
+            // A Java caller can pass a null key despite @NonNull, and the set, backed by a
+            // ConcurrentHashMap, throws on one.
+            if (key != null && unknownFlagsReported.size() < MAX_UNKNOWN_FLAGS_REPORTED
+                    && unknownFlagsReported.add(key)) {
                 logger.info("Unknown feature flag \"{}\"; returning default value", key);
             } else {
                 logger.debug("Unknown feature flag \"{}\"; returning default value", key);
