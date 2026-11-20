@@ -56,6 +56,19 @@ public class LDClientEvaluationTest {
     }
 
     @Test
+    @SuppressWarnings("ConstantConditions")
+    public void aNullFlagKeyReturnsTheDefaultRatherThanThrowing() throws Exception {
+        // Java callers can violate the @NonNull contract.
+        try (LDClient client = makeClientWithData(DataSetBuilder.emptyData())) {
+            assertFalse(client.boolVariation(null, false));
+            assertTrue(client.boolVariation(null, true));
+            EvaluationDetail<Boolean> detail = client.boolVariationDetail(null, false);
+            assertFalse(detail.getValue());
+            assertEquals(EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND), detail.getReason());
+        }
+    }
+
+    @Test
     public void boolVariationDetailReturnsValue() throws Exception {
         EnvironmentData data = new DataSetBuilder().add(
                 new FlagBuilder(flagKey).value(true).variation(1).reason(reason).build()
