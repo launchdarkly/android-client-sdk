@@ -47,6 +47,11 @@ public abstract class HttpConfigurationBuilder implements ComponentConfigurer<Ht
     protected boolean useReport;
 
     /**
+     * Whether the HTTP POST method is used for FDv2 flag requests
+     */
+    protected boolean usePost;
+
+    /**
      * Name of the wrapping library
      */
     protected String wrapperName;
@@ -98,6 +103,25 @@ public abstract class HttpConfigurationBuilder implements ComponentConfigurer<Ht
      */
     public HttpConfigurationBuilder useReport(boolean useReport) {
         this.useReport = useReport;
+        return this;
+    }
+
+    /**
+     * Sets whether to use the HTTP POST method for feature flag requests.
+     * <p>
+     * By default, polling and streaming connections are made with the GET method, with the
+     * evaluation context data encoded into the request URI. When this option is enabled, the
+     * SDK sends the context data in the request body instead. This keeps the context out of
+     * URL-based request logs and CDN logs.
+     * <p>
+     * This option only takes effect when the data system is configured with
+     * {@link com.launchdarkly.sdk.android.LDConfig.Builder#dataSystem(DataSystemBuilder)}.
+     *
+     * @param usePost true to enable the POST method
+     * @return the builder
+     */
+    public HttpConfigurationBuilder usePost(boolean usePost) {
+        this.usePost = usePost;
         return this;
     }
 

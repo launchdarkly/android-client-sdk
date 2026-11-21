@@ -92,10 +92,10 @@ public class FDv2StreamingSynchronizerTest {
 
     private FDv2StreamingSynchronizer makeSynchronizer(
             URI streamBaseUri,
-            boolean evaluationReasons, boolean useReport) {
+            boolean evaluationReasons, boolean usePost) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
-                null, 100, evaluationReasons, useReport,
+                null, 100, evaluationReasons, usePost,
                 httpProperties(), executor, LOGGER, null);
     }
 
@@ -1038,7 +1038,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
-                    true /* evaluationReasons */, false);
+                    true /* evaluationReasons */, false /* usePost */);
 
             sync.next().get(5, TimeUnit.SECONDS);
 
@@ -1051,7 +1051,7 @@ public class FDv2StreamingSynchronizerTest {
     }
 
     @Test
-    public void useReportMethodForStreamRequest() throws Exception {
+    public void usePostMethodForStreamRequest() throws Exception {
         String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
         String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
 
@@ -1062,16 +1062,16 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
-                    false, true /* useReport */);
+                    false, true /* usePost */);
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
 
             RequestInfo request = server.getRecorder().requireRequest();
-            assertEquals("REPORT", request.getMethod());
-            // With REPORT the context goes in the body, not the URL path
-            assertFalse("path should not contain base64 context segment when using REPORT",
+            assertEquals("POST", request.getMethod());
+            // With POST the context goes in the body, not the URL path
+            assertFalse("path should not contain base64 context segment when using POST",
                     request.getPath().contains(LDUtil.urlSafeBase64(CONTEXT)));
             assertNotNull("body should contain serialized context", request.getBody());
             assertTrue("body should contain context key",
