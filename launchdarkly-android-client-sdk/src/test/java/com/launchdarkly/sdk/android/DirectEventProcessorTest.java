@@ -4891,7 +4891,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 diagnosticSender,
                 new AnalyticsEventSender(LDUtil.makeHttpProperties(
                         new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
-                        logging.logger),
+                        false, logging.logger),
                 lastRetryState,
                 eventsUri,
                 diagnosticStore,
