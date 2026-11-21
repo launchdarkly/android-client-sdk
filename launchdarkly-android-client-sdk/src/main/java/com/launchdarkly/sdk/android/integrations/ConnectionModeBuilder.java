@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
@@ -25,6 +26,12 @@ import java.util.List;
  * up to date after initialization. The SDK uses the first synchronizer and falls
  * back to subsequent ones if it encounters errors.
  * <p>
+ * The <b>FDv1 fallback synchronizer</b> is an FDv1 polling synchronizer that the SDK
+ * switches to when LaunchDarkly directs it to fall back to FDv1. A customized mode keeps
+ * the SDK's default FDv1 fallback for that mode unless you configure it with
+ * {@link #fdv1FallbackSynchronizer(FDv1FallbackSynchronizerEntry)} or remove it with
+ * {@link #disableFdv1Fallback()}.
+ * <p>
  * Obtain an instance from {@link com.launchdarkly.sdk.android.DataSystemComponents#customMode()},
  * configure it, and pass it to
  * {@link DataSystemBuilder#customizeConnectionMode(ConnectionMode, ConnectionModeBuilder)}:
@@ -43,6 +50,9 @@ public class ConnectionModeBuilder {
 
     private final List<InitializerEntry> initializerEntries = new ArrayList<>();
     private final List<SynchronizerEntry> synchronizerEntries = new ArrayList<>();
+    @Nullable
+    private FDv1FallbackSynchronizerEntry fdv1FallbackSynchronizerEntry;
+    private boolean fdv1FallbackDisabled;
 
     /**
      * Sets the initializers for this connection mode.
@@ -91,6 +101,43 @@ public class ConnectionModeBuilder {
     }
 
     /**
+     * Configures the FDv1 fallback synchronizer for this connection mode, replacing the
+     * SDK's default for the mode. This undoes any earlier call to {@link #disableFdv1Fallback()}.
+     * <p>
+     * Use {@link DataSystemComponents#fdv1FallbackSynchronizer()} to obtain an entry:
+     * <pre><code>
+     *     builder.fdv1FallbackSynchronizer(
+     *         DataSystemComponents.fdv1FallbackSynchronizer()
+     *             .pollIntervalMillis(600_000))
+     * </code></pre>
+     *
+     * @param fdv1FallbackSynchronizer the FDv1 fallback synchronizer entry
+     * @return this builder
+     */
+    public ConnectionModeBuilder fdv1FallbackSynchronizer(
+            @NonNull FDv1FallbackSynchronizerEntry fdv1FallbackSynchronizer) {
+        this.fdv1FallbackSynchronizerEntry = fdv1FallbackSynchronizer;
+        this.fdv1FallbackDisabled = false;
+        return this;
+    }
+
+    /**
+     * Removes the FDv1 fallback synchronizer from this connection mode, so the SDK does not
+     * fall back to FDv1 in this mode. This undoes any earlier call to
+     * {@link #fdv1FallbackSynchronizer(FDv1FallbackSynchronizerEntry)}.
+     * <p>
+     * If you neither call this method nor configure an FDv1 fallback synchronizer, the mode
+     * keeps the SDK's default FDv1 fallback.
+     *
+     * @return this builder
+     */
+    public ConnectionModeBuilder disableFdv1Fallback() {
+        this.fdv1FallbackSynchronizerEntry = null;
+        this.fdv1FallbackDisabled = true;
+        return this;
+    }
+
+    /**
      * Returns the configured initializer entries as an unmodifiable list.
      *
      * @return the initializer entries
@@ -108,5 +155,24 @@ public class ConnectionModeBuilder {
     @NonNull
     public List<SynchronizerEntry> getSynchronizerEntries() {
         return Collections.unmodifiableList(synchronizerEntries);
+    }
+
+    /**
+     * Returns the configured FDv1 fallback synchronizer entry, or null if none was configured.
+     *
+     * @return the FDv1 fallback synchronizer entry, or null
+     */
+    @Nullable
+    public FDv1FallbackSynchronizerEntry getFdv1FallbackSynchronizerEntry() {
+        return fdv1FallbackSynchronizerEntry;
+    }
+
+    /**
+     * Returns true if {@link #disableFdv1Fallback()} removed the FDv1 fallback from this mode.
+     *
+     * @return true if the FDv1 fallback is disabled for this mode
+     */
+    public boolean isFdv1FallbackDisabled() {
+        return fdv1FallbackDisabled;
     }
 }
