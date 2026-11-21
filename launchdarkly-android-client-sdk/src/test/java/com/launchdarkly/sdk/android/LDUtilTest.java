@@ -14,6 +14,13 @@ public class LDUtilTest {
     }
 
     @Test
+    public void testHashedStorageNameDoesNotHoldTheKey() {
+        String name = LDUtil.hashedStorageName("mob-12345");
+        Assert.assertEquals("3a4f14b3feba38b362ad80b504238faa", name);
+        Assert.assertFalse(name.contains("mob-12345"));
+    }
+
+    @Test
     public void testValidateStringValue() {
         Assert.assertNotNull(LDUtil.validateStringValue(""));
         Assert.assertNotNull(LDUtil.validateStringValue("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEFwhoops"));
