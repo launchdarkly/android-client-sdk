@@ -74,18 +74,32 @@ public class DeliveryRetryStateTest {
     }
 
     @Test
-    public void aRetryAfterSetsTheWaitJitteredToNoLessThanHalfOfIt() {
+    public void aRetryAfterSetsTheWaitJitteredUpByNoMoreThanHalfOfIt() {
         for (int i = 0; i < 100; i++) {
             long wait = state.recordFailure(false, 10 * SECOND);
-            assertTrue(wait + "ms", wait >= 5 * SECOND && wait <= 10 * SECOND);
+            assertTrue(wait + "ms", wait >= 10 * SECOND && wait <= 15 * SECOND);
         }
     }
 
     @Test
-    public void aRetryAfterIsCappedAtAnHour() {
-        long wait = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, 512 * SECOND, TimeUnit.HOURS.toMillis(1),
-                new FixedRandom(0)).recordFailure(false, TimeUnit.HOURS.toMillis(5));
-        assertEquals(TimeUnit.HOURS.toMillis(1), wait);
+    public void aRetryAfterIsJitteredUpToTheHourAtMost() {
+        long fortyFiveMinutes = TimeUnit.MINUTES.toMillis(45);
+        assertEquals(fortyFiveMinutes, withRandom(0).recordFailure(false, fortyFiveMinutes));
+        assertEquals(TimeUnit.SECONDS.toMillis(3_150), withRandom(0.5).recordFailure(false, fortyFiveMinutes));
+        assertTrue(withRandom(0.999_999).recordFailure(false, fortyFiveMinutes) <= TimeUnit.HOURS.toMillis(1));
+    }
+
+    @Test
+    public void aRetryAfterOfAnHourOrMoreIsJitteredDownFromTheHour() {
+        for (long retryAfter : new long[] { TimeUnit.HOURS.toMillis(1), TimeUnit.HOURS.toMillis(5) }) {
+            assertEquals(TimeUnit.HOURS.toMillis(1), withRandom(0).recordFailure(false, retryAfter));
+            assertEquals(TimeUnit.MINUTES.toMillis(45), withRandom(0.5).recordFailure(false, retryAfter));
+        }
+    }
+
+    private static DeliveryRetryState withRandom(double value) {
+        return new DeliveryRetryState(SECOND, FLUSH_INTERVAL, 512 * SECOND, TimeUnit.HOURS.toMillis(1),
+                new FixedRandom(value));
     }
 
     @Test
