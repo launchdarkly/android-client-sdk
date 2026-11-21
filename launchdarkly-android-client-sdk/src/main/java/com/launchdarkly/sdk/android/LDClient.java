@@ -708,7 +708,8 @@ public class LDClient implements LDClientInterface, Closeable {
                     context,
                     key,
                     flag.getVersionForEvents(),
-                    flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                    // The event records the variation of the result. A wrong-type result has no variation.
+                    result.getVariationIndex(),
                     value,
                     flag.isTrackReason() | needsReason ? result.getReason() : null,
                     defaultValue,

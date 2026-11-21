@@ -145,7 +145,7 @@ abstract class ComponentsImpl {
                     StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                     StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
                     0L, // use default retry delay
-                    false, // disable gzip compression for Android
+                    enableCompression,
                     clientContext.getBaseLogger());
             boolean commitOnCallerThread = eventPersistence == EventPersistence.IMMEDIATE;
             DirectEventProcessor processor = new DirectEventProcessor(
@@ -233,7 +233,8 @@ abstract class ComponentsImpl {
                     connectTimeoutMillis,
                     headers,
                     headerTransform,
-                    useReport
+                    useReport,
+                    usePost
             );
         }
 

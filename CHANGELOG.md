@@ -2,6 +2,26 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.19.0](https://github.com/launchdarkly/android-client-sdk/compare/5.18.0...5.19.0) (2026-11-20)
+
+
+### Features
+
+* Configure or disable the FDv1 fallback per connection mode ([#420](https://github.com/launchdarkly/android-client-sdk/issues/420)) ([342150e](https://github.com/launchdarkly/android-client-sdk/commit/342150ebf1787f438e6a89e6fda4656eea656477))
+
+
+### Bug Fixes
+
+* Record no variation in events when a typed evaluation has the wrong type ([#432](https://github.com/launchdarkly/android-client-sdk/issues/432)) ([0298fb0](https://github.com/launchdarkly/android-client-sdk/commit/0298fb027bdb502d9882bf0ce5ac1f488a490287))
+* Update launchdarkly-java-sdk-internal to 1.13.1 ([#435](https://github.com/launchdarkly/android-client-sdk/issues/435)) ([24f56e6](https://github.com/launchdarkly/android-client-sdk/commit/24f56e6f6a4c01d1e956ce843119438c36ec7009))
+
+## [5.18.0](https://github.com/launchdarkly/android-client-sdk/compare/5.17.0...5.18.0) (2026-10-30)
+
+
+### Features
+
+* add support for `usePost` option for FDv2 ([#411](https://github.com/launchdarkly/android-client-sdk/issues/411)) ([d5049ae](https://github.com/launchdarkly/android-client-sdk/commit/d5049aeae84ac10c86563e14c28acc5e9aeeaabd))
+
 ## [5.17.0](https://github.com/launchdarkly/android-client-sdk/compare/5.16.1...5.17.0) (2026-10-15)
 
 
