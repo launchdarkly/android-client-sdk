@@ -156,7 +156,7 @@ abstract class ComponentsImpl {
                     makeEventStore(clientContext, clientContextImpl),
                     diagnosticEventSender,
                     new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
-                            clientContext.getBaseLogger()),
+                            enableCompression, clientContext.getBaseLogger()),
                     makeRetryState(),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
