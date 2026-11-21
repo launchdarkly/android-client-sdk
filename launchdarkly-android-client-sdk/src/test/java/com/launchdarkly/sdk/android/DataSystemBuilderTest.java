@@ -122,6 +122,37 @@ public class DataSystemBuilderTest {
     }
 
     @Test
+    public void customizeConnectionMode_disableFdv1FallbackRemovesFallbackFromThatModeOnly() {
+        DataSystemBuilder b = Components.dataSystem()
+                .customizeConnectionMode(
+                        ConnectionMode.STREAMING,
+                        DataSystemComponents.customMode()
+                                .synchronizers(DataSystemComponents.streamingSynchronizer())
+                                .disableFdv1Fallback())
+                .customizeConnectionMode(
+                        ConnectionMode.POLLING,
+                        DataSystemComponents.customMode()
+                                .synchronizers(DataSystemComponents.pollingSynchronizer()));
+        Map<ConnectionMode, ModeDefinition> table = b.buildModeTable(false);
+        assertNull(table.get(ConnectionMode.STREAMING).getFdv1FallbackSynchronizer());
+        assertNotNull(table.get(ConnectionMode.POLLING).getFdv1FallbackSynchronizer());
+        assertNotNull(table.get(ConnectionMode.BACKGROUND).getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void customizeConnectionMode_configuredFdv1FallbackAppliesToModeWithoutDefault() {
+        // ONE_SHOT has no FDv1 fallback by default.
+        DataSystemBuilder b = Components.dataSystem()
+                .customizeConnectionMode(
+                        ConnectionMode.ONE_SHOT,
+                        DataSystemComponents.customMode()
+                                .initializers(DataSystemComponents.pollingInitializer())
+                                .fdv1FallbackSynchronizer(DataSystemComponents.fdv1FallbackSynchronizer()));
+        Map<ConnectionMode, ModeDefinition> table = b.buildModeTable(false);
+        assertNotNull(table.get(ConnectionMode.ONE_SHOT).getFdv1FallbackSynchronizer());
+    }
+
+    @Test
     public void getConnectionModeOverrides_isUnmodifiable() {
         DataSystemBuilder b = Components.dataSystem();
         try {
