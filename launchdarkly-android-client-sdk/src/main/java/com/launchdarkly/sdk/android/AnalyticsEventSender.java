@@ -5,11 +5,13 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPOutputStream;
 
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLPeerUnverifiedException;
@@ -45,9 +47,15 @@ final class AnalyticsEventSender implements Closeable {
     private final OkHttpClient client;
     private final boolean ownsClient;
     private final Headers baseHeaders;
+    private final boolean compress;
     private final LDLogger logger;
 
-    AnalyticsEventSender(HttpProperties httpProperties, LDLogger logger) {
+    /**
+     * @param compress whether to send bodies gzip-encoded; the batch on disk stays plain JSON, and each
+     *                 attempt compresses it again
+     */
+    AnalyticsEventSender(HttpProperties httpProperties, boolean compress, LDLogger logger) {
+        this.compress = compress;
         this.logger = logger;
         if (httpProperties.getSharedHttpClient() == null) {
             this.client = httpProperties.toHttpClientBuilder().build();
@@ -97,14 +105,20 @@ final class AnalyticsEventSender implements Closeable {
     Result sendBatch(EventLogFormat.Payload payload, int eventCount, String payloadId, URI eventsBaseUri) {
         URI uri = HttpHelpers.concatenateUriPath(eventsBaseUri,
                 StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH);
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
                 .url(uri.toString())
                 .headers(baseHeaders)
                 .addHeader("Content-Type", "application/json")
                 .addHeader(EVENT_SCHEMA_HEADER, EVENT_SCHEMA_VERSION)
-                .addHeader(PAYLOAD_ID_HEADER, payloadId)
-                .post(RequestBody.create(payload.bytes, JSON, 0, payload.length))
-                .build();
+                .addHeader(PAYLOAD_ID_HEADER, payloadId);
+        byte[] gzipped = compress ? gzip(payload) : null;
+        if (gzipped != null) {
+            builder.addHeader("Content-Encoding", "gzip")
+                    .post(RequestBody.create(gzipped, JSON));
+        } else {
+            builder.post(RequestBody.create(payload.bytes, JSON, 0, payload.length));
+        }
+        Request request = builder.build();
 
         try (Response response = client.newCall(request).execute()) {
             if (response.isSuccessful()) {
@@ -123,6 +137,18 @@ final class AnalyticsEventSender implements Closeable {
             boolean unexpected = e instanceof SSLHandshakeException || e instanceof SSLPeerUnverifiedException;
             return new Result(false, unexpected, 0, -1, null);
         }
+    }
+
+    /** The body gzip-encoded, or null where encoding failed and it goes as it is. */
+    private byte[] gzip(EventLogFormat.Payload payload) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(32, payload.length / 4));
+        try (GZIPOutputStream gzip = new GZIPOutputStream(out)) {
+            gzip.write(payload.bytes, 0, payload.length);
+        } catch (IOException e) {
+            logger.warn("Could not compress events, sending them uncompressed: {}", LogValues.exceptionSummary(e));
+            return null;
+        }
+        return out.toByteArray();
     }
 
     /** {@code Retry-After} as seconds or as an HTTP date, or -1 where it is absent or unreadable. */
