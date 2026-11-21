@@ -98,6 +98,21 @@
             android:spinnerMode="dropdown" />
     </LinearLayout>
 
+    <!--
+        What the SDK has on disk for this app and mobile key, read again every second while the app is in
+        the foreground: see EventStorageInspector. A long press copies the directory's path.
+    -->
+    <TextView
+        android:id="@+id/storage_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/persistence_row"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:fontFamily="monospace"
+        android:textColor="@android:color/black"
+        android:textSize="10sp" />
+
     <TextView
         android:id="@+id/textView"
         android:layout_width="wrap_content"
@@ -236,7 +251,7 @@
         android:id="@+id/space"
         android:layout_width="0dp"
         android:layout_height="8dp"
-        android:layout_below="@+id/persistence_row"
+        android:layout_below="@+id/storage_status"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
