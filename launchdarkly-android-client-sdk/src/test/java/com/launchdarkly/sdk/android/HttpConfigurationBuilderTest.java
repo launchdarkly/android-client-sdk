@@ -11,6 +11,8 @@ import java.util.Map;
 
 import static com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class HttpConfigurationBuilderTest {
     private static final String MOBILE_KEY = "mobile-key";
@@ -47,6 +49,20 @@ public class HttpConfigurationBuilderTest {
                 .connectTimeoutMillis(999)
                 .build(BASIC_CONTEXT);
         assertEquals(999, hc.getConnectTimeoutMillis());
+    }
+
+    @Test
+    public void testUsePostDefaultsToFalse() {
+        HttpConfiguration hc = Components.httpConfiguration().build(BASIC_CONTEXT);
+        assertFalse(hc.shouldUsePost());
+    }
+
+    @Test
+    public void testUsePost() {
+        HttpConfiguration hc = Components.httpConfiguration()
+                .usePost(true)
+                .build(BASIC_CONTEXT);
+        assertTrue(hc.shouldUsePost());
     }
 
     @Test

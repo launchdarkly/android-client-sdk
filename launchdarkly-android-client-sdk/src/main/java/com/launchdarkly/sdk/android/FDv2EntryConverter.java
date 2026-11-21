@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.CacheInitializerEntry;
+import com.launchdarkly.sdk.android.integrations.FDv1FallbackSynchronizerEntry;
 import com.launchdarkly.sdk.android.integrations.InitializerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingInitializerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingSynchronizerEntry;
@@ -44,6 +45,11 @@ public final class FDv2EntryConverter {
             return DataSystemComponents.StreamingSynchronizerBuilderImpl.fromEntry((StreamingSynchronizerEntry) entry);
         }
         throw new IllegalArgumentException("Unsupported SynchronizerEntry: " + entry.getClass().getName());
+    }
+
+    public static DataSourceBuilder<Synchronizer> toFdv1FallbackSynchronizerBuilder(
+            FDv1FallbackSynchronizerEntry entry) {
+        return DataSystemComponents.FDv1PollingSynchronizerBuilderImpl.fromEntry(entry);
     }
 
     public static List<DataSourceBuilder<Initializer>> toInitializerBuilders(List<InitializerEntry> entries) {

@@ -4,6 +4,7 @@ import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
 import com.launchdarkly.sdk.android.integrations.CacheInitializerEntry;
 import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
+import com.launchdarkly.sdk.android.integrations.FDv1FallbackSynchronizerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingInitializerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingSynchronizerEntry;
 import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerEntry;
@@ -141,7 +142,7 @@ public abstract class DataSystemComponents {
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
-                    inputs.isEvaluationReasons(), inputs.getHttp().isUseReport(),
+                    inputs.isEvaluationReasons(), inputs.getHttp().shouldUsePost(),
                     httpProps, inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
@@ -150,6 +151,14 @@ public abstract class DataSystemComponents {
     static final class FDv1PollingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
 
         protected int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+        private ServiceEndpoints serviceEndpointsOverride;
+
+        static FDv1PollingSynchronizerBuilderImpl fromEntry(FDv1FallbackSynchronizerEntry entry) {
+            FDv1PollingSynchronizerBuilderImpl b = new FDv1PollingSynchronizerBuilderImpl();
+            b.pollIntervalMillis = entry.getPollIntervalMillis();
+            b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
+            return b;
+        }
 
         public FDv1PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
             this.pollIntervalMillis = pollIntervalMillis <= LDConfig.DEFAULT_POLL_INTERVAL_MILLIS ?
@@ -159,10 +168,20 @@ public abstract class DataSystemComponents {
 
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
+            // The FDv1 endpoints have no POST variant. When usePost is enabled, the fetcher
+            // sends the context in the request body with REPORT so it stays out of the
+            // request URI. useReport has no effect inside the data system.
+            ServiceEndpoints endpoints = serviceEndpointsOverride != null
+                    ? serviceEndpointsOverride
+                    : inputs.getServiceEndpoints();
+            URI pollingBase = StandardEndpoints.selectBaseUri(
+                    endpoints.getPollingBaseUri(),
+                    StandardEndpoints.DEFAULT_POLLING_BASE_URI,
+                    "polling", inputs.getBaseLogger());
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
-                inputs.getServiceEndpoints().getPollingBaseUri(),
+                pollingBase,
                 inputs.isEvaluationReasons(),
-                inputs.getHttp().isUseReport(),
+                inputs.getHttp().shouldUsePost(),
                 LDUtil.makeHttpProperties(inputs.getHttp()),
                 inputs.getCacheDir(),
                 inputs.getBaseLogger()
@@ -238,6 +257,20 @@ public abstract class DataSystemComponents {
      */
     public static StreamingSynchronizerEntry streamingSynchronizer() {
         return new StreamingSynchronizerEntry();
+    }
+
+    /**
+     * Returns an entry for the FDv1 fallback synchronizer of a connection mode.
+     * <p>
+     * The SDK switches to the FDv1 fallback synchronizer when LaunchDarkly directs it to
+     * fall back to FDv1. Pass the entry to
+     * {@link ConnectionModeBuilder#fdv1FallbackSynchronizer(FDv1FallbackSynchronizerEntry)}
+     * to set its poll interval or service endpoints for that mode.
+     *
+     * @return an FDv1 fallback synchronizer entry
+     */
+    public static FDv1FallbackSynchronizerEntry fdv1FallbackSynchronizer() {
+        return new FDv1FallbackSynchronizerEntry();
     }
 
     /**
@@ -361,8 +394,8 @@ public abstract class DataSystemComponents {
         return new DefaultFDv2Requestor(
                 inputs.getEvaluationContext(), pollingBase,
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                httpProps, inputs.getHttp().isUseReport(),
+                StandardEndpoints.FDV2_POLLING_REQUEST_POST_BASE_PATH,
+                httpProps, inputs.getHttp().shouldUsePost(),
                 inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
     }
 }
