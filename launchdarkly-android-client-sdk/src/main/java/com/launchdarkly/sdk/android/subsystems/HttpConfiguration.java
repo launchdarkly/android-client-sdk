@@ -25,9 +25,34 @@ public final class HttpConfiguration {
     private final Map<String, String> defaultHeaders;
     private final LDHeaderUpdater headerTransform;
     private final boolean useReport;
+    private final boolean usePost;
 
     /**
      * Creates an instance.
+     *
+     * @param connectTimeoutMillis see {@link #getConnectTimeoutMillis()}
+     * @param defaultHeaders see {@link #getDefaultHeaders()}
+     * @param headerTransform see {@link #getHeaderTransform()}
+     * @param useReport see {@link #isUseReport()}
+     * @param usePost see {@link #shouldUsePost()}
+     */
+    public HttpConfiguration(
+            int connectTimeoutMillis,
+            Map<String, String> defaultHeaders,
+            LDHeaderUpdater headerTransform,
+            boolean useReport,
+            boolean usePost
+    ) {
+        super();
+        this.connectTimeoutMillis = connectTimeoutMillis;
+        this.defaultHeaders = defaultHeaders == null ? emptyMap() : new HashMap<>(defaultHeaders);
+        this.headerTransform = headerTransform;
+        this.useReport = useReport;
+        this.usePost = usePost;
+    }
+
+    /**
+     * Creates an instance with {@code usePost} disabled.
      *
      * @param connectTimeoutMillis see {@link #getConnectTimeoutMillis()}
      * @param defaultHeaders see {@link #getDefaultHeaders()}
@@ -40,11 +65,7 @@ public final class HttpConfiguration {
             LDHeaderUpdater headerTransform,
             boolean useReport
     ) {
-        super();
-        this.connectTimeoutMillis = connectTimeoutMillis;
-        this.defaultHeaders = defaultHeaders == null ? emptyMap() : new HashMap<>(defaultHeaders);
-        this.headerTransform = headerTransform;
-        this.useReport = useReport;
+        this(connectTimeoutMillis, defaultHeaders, headerTransform, useReport, false);
     }
 
     /**
@@ -83,5 +104,14 @@ public final class HttpConfiguration {
      */
     public boolean isUseReport() {
         return useReport;
+    }
+
+    /**
+     * The setting for whether to use the HTTP POST method for FDv2 flag requests.
+     *
+     * @return true to use HTTP POST
+     */
+    public boolean shouldUsePost() {
+        return usePost;
     }
 }

@@ -36,9 +36,12 @@ public class FDv2DataSourceBuilderTest {
     public LogCaptureRule logging = new LogCaptureRule();
 
     private ClientContext makeClientContext() {
+        return makeClientContext(new HttpConfiguration(10_000, Collections.emptyMap(), null, false));
+    }
+
+    private ClientContext makeClientContext(HttpConfiguration http) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        HttpConfiguration http = new HttpConfiguration(10_000, Collections.emptyMap(), null, false);
         ClientContext base = new ClientContext(
                 "mobile-key",
                 ENV_REPORTER,
@@ -341,5 +344,35 @@ public class FDv2DataSourceBuilderTest {
         } catch (IllegalStateException e) {
             assertTrue(e.getMessage().contains("not found in mode table"));
         }
+    }
+
+    // ---- useReport warning when the data system is configured ----
+
+    private long useReportWarnCount() {
+        return logging.logCapture.getMessageStrings().stream()
+                .filter(m -> m.contains("WARN") && m.contains("useReport"))
+                .count();
+    }
+
+    @Test
+    public void build_withUseReport_logsWarningOnce() {
+        HttpConfiguration http = new HttpConfiguration(
+                10_000, Collections.emptyMap(), null, true, false);
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        // build runs once per connection mode switch; the warning logs only once
+        builder.build(makeClientContext(http));
+        builder.build(makeClientContext(http));
+        builder.close();
+
+        assertEquals(1, useReportWarnCount());
+    }
+
+    @Test
+    public void build_withoutUseReport_logsNoWarning() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+        builder.close();
+
+        assertEquals(0, useReportWarnCount());
     }
 }
