@@ -11,6 +11,24 @@ launchdarkly.environment=production
 
 Set `launchdarkly.environment=staging` to use LaunchDarkly's staging endpoints.
 
+## Two environments
+
+Add a second key to start a second environment alongside the first, from the same `LDConfig`
+through `secondaryMobileKeys`:
+
+```properties
+launchdarkly.secondaryMobileKey=mob-...
+```
+
+An **Env** spinner then appears next to **Persistence**, and chooses which environment's client the
+buttons use: the evaluations, **Track**, the kill, crash, over-refresh and fill-batches buttons,
+**Post 20 MB**, the connection status and the event storage view, which shows that environment's own
+directory. The choice is saved, so the launch that answers a kill button shows the same environment.
+
+**Flush**, **Offline**, **Identify** and the restart a persistence change makes reach both
+environments whichever is selected, because the SDK applies `flush`, `setOffline`, `setOnline`,
+`identify` and `close` to every environment it started.
+
 ## Event-loss scenarios
 
 Create a boolean flag named `kill-flag`, or enter another flag key in the app. Tap

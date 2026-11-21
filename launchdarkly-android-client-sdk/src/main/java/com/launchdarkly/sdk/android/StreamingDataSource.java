@@ -62,6 +62,7 @@ final class StreamingDataSource implements DataSource {
     private final LDContext context;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
+    private final String payloadFilter;
     final int initialReconnectDelayMillis; // visible for testing
     private final RetryDelayStrategy normalRetryDelay;
     private final RetryDelayStrategy extendedRetryDelay;
@@ -106,6 +107,7 @@ final class StreamingDataSource implements DataSource {
         this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
         this.httpProperties = LDUtil.makeHttpProperties(clientContext);
         this.evaluationReasons = clientContext.isEvaluationReasons();
+        this.payloadFilter = LDUtil.payloadFilter(clientContext);
         this.useReport = clientContext.getHttp().isUseReport();
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
         this.normalRetryDelay = RetryDelayStrategy.defaultStrategy()
@@ -230,7 +232,7 @@ final class StreamingDataSource implements DataSource {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
 
-        return uri;
+        return LDUtil.withPayloadFilter(uri, payloadFilter);
     }
 
     @VisibleForTesting

@@ -83,6 +83,7 @@ public class FDv2StreamingSynchronizerTest {
                 null,
                 100,
                 false,
+                null,
                 false,
                 httpProperties(),
                 executor,
@@ -93,9 +94,15 @@ public class FDv2StreamingSynchronizerTest {
     private FDv2StreamingSynchronizer makeSynchronizer(
             URI streamBaseUri,
             boolean evaluationReasons, boolean usePost) {
+        return makeSynchronizer(streamBaseUri, evaluationReasons, usePost, null);
+    }
+
+    private FDv2StreamingSynchronizer makeSynchronizer(
+            URI streamBaseUri,
+            boolean evaluationReasons, boolean usePost, String payloadFilter) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
-                null, 100, evaluationReasons, usePost,
+                null, 100, evaluationReasons, payloadFilter, usePost,
                 httpProperties(), executor, LOGGER, null);
     }
 
@@ -1051,6 +1058,33 @@ public class FDv2StreamingSynchronizerTest {
     }
 
     @Test
+    public void payloadFilterAddedToStreamUrl() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
+                    true /* evaluationReasons */, false /* usePost */, "mobile-flags");
+
+            sync.next().get(5, TimeUnit.SECONDS);
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertNotNull(request.getQuery());
+            assertTrue("query should contain filter=mobile-flags",
+                    request.getQuery().contains("filter=mobile-flags"));
+            assertTrue("query should still contain withReasons=true",
+                    request.getQuery().contains("withReasons=true"));
+
+            sync.close();
+        }
+    }
+
+    @Test
     public void usePostMethodForStreamRequest() throws Exception {
         String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
         String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
@@ -1131,7 +1165,7 @@ public class FDv2StreamingSynchronizerTest {
 
             FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                     CONTEXT, EMPTY_SELECTOR_SOURCE, streamServer.getUri(), STREAM_PATH,
-                    requestor, 100, false, false,
+                    requestor, 100, false, null, false,
                     httpProperties(), executor, LOGGER, null);
 
             try {
@@ -1171,7 +1205,7 @@ public class FDv2StreamingSynchronizerTest {
 
         FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, URI.create("http://localhost:9999/"), STREAM_PATH,
-                trackingRequestor, 100, false, false,
+                trackingRequestor, 100, false, null, false,
                 httpProperties(), executor, LOGGER, null);
 
         assertFalse(requestorClosed.get());
