@@ -10,6 +10,7 @@ import android.app.Application;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -31,6 +32,8 @@ import okhttp3.HttpUrl;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import okio.GzipSource;
+import okio.Okio;
 
 public class LDClientEventTest {
     // For better test isolation, any tests here that need to inject flag data will use a simple
@@ -195,6 +198,49 @@ public class LDClientEventTest {
                 assertEquals(LDValue.parse(JsonSerialization.serialize(flag.getReason())),
                         featureEvent.get("reason"));
                 assertSummaryEvent(summaryEvent);
+            }
+        }
+    }
+
+    @Test
+    public void wrongTypeEvaluationEventHasDefaultValueAndNoVariation() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            // The flag value is a string, so a boolean evaluation has the wrong type.
+            Flag flag = new FlagBuilder("wrong-type-flag").version(10)
+                    .variation(0).value(LDValue.of("a")).reason(EvaluationReason.fallthrough())
+                    .trackEvents(true).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                EvaluationDetail<Boolean> detail = client.boolVariationDetail("wrong-type-flag", true);
+                assertEquals(Boolean.TRUE, detail.getValue());
+                assertEquals(EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE), detail.getReason());
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 3);
+                LDValue featureEvent = events[1], summaryEvent = events[2];
+                assertFeatureEvent(featureEvent, ldContext);
+                assertEquals(LDValue.of("wrong-type-flag"), featureEvent.get("key"));
+                assertEquals(LDValue.of(true), featureEvent.get("value"));
+                assertEquals(LDValue.ofNull(), featureEvent.get("variation"));
+                assertEquals(LDValue.of(10), featureEvent.get("version"));
+                assertEquals(LDValue.parse(JsonSerialization.serialize(
+                        EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE))),
+                        featureEvent.get("reason"));
+
+                assertSummaryEvent(summaryEvent);
+                LDValue counter = summaryEvent.get("features").get("wrong-type-flag").get("counters").get(0);
+                assertEquals(LDValue.of(true), counter.get("value"));
+                assertEquals(LDValue.ofNull(), counter.get("variation"));
+                assertEquals(LDValue.of(10), counter.get("version"));
             }
         }
     }
@@ -520,12 +566,14 @@ public class LDClientEventTest {
         }
     }
 
-    private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
+    private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws IOException, InterruptedException {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
         assertEquals("/mobile/events/bulk", r.getPath());
         assertEquals(mobileKey, r.getHeader("Authorization"));
-        String body = r.getBody().readUtf8();
+        String body = "gzip".equals(r.getHeader("Content-Encoding"))
+                ? Okio.buffer(new GzipSource(r.getBody())).readUtf8()
+                : r.getBody().readUtf8();
         System.out.println(body);
         LDValue[] events = GsonHelpers.gsonInstance().fromJson(body, LDValue[].class);
         if (events.length != expectedCount) {

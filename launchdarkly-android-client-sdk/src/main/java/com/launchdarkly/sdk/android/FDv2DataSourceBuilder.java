@@ -39,6 +39,10 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private boolean includeInitializers = true; // start with initializers
     private ScheduledExecutorService sharedExecutor;
 
+    // The useReport warning logs once per builder; build runs again on every
+    // connection mode switch.
+    private boolean useReportWarningLogged;
+
     FDv2DataSourceBuilder() {
         this(DataSystemComponents.makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
     }
@@ -98,6 +102,13 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
 
     @Override
     public DataSource build(ClientContext clientContext) {
+        if (clientContext.getHttp().isUseReport() && !useReportWarningLogged) {
+            useReportWarningLogged = true;
+            clientContext.getBaseLogger().warn(
+                    "The useReport option has no effect when the data system is configured;"
+                            + " requests use GET unless usePost is enabled.");
+        }
+
         if (sharedExecutor == null) {
             // Pool size 4: supports the FDv2DataSource main loop (1), an active synchronizer
             // such as the streaming event loop (1), FDv2DataSource condition timers for
