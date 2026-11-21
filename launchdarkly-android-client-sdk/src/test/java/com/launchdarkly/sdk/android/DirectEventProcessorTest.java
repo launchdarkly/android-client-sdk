@@ -3005,6 +3005,33 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aLogAPreviousRunLeftOpenIsLeftAloneUntilTheProcessorStarts() throws Exception {
+        assumePersisting();
+        File directory = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY);
+        assertTrue(directory.mkdirs() || directory.isDirectory());
+        ByteArrayOutputStream log = new ByteArrayOutputStream();
+        log.write(EventLogFormat.fileHeader());
+        EventLogFormat.writeFrame(log, "{\"kind\":\"custom\",\"key\":\"left-open\"}".getBytes("UTF-8"));
+        Files.write(new File(directory, EventDirectory.LOG_PREFIX + UUID.randomUUID()).toPath(), log.toByteArray());
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeUnstartedEventProcessor(store, scheduler);
+        try {
+            // The events thread runs one task at a time, so this has run everything queued before it.
+            scheduler.submit(() -> { }).get(5, TimeUnit.SECONDS);
+            assertTrue(store.pendingBatches().isEmpty());
+
+            eventProcessor.start();
+            scheduler.submit(() -> { }).get(5, TimeUnit.SECONDS);
+            assertEquals(1, store.pendingBatches().size());
+        } finally {
+            eventProcessor.close();
+        }
+    }
+
+    @Test
     public void aBatchStillRefusedAtCloseIsDeliveredByTheNextRun() throws Exception {
         assumePersisting();
         String payloadId;
@@ -3514,7 +3541,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
-                            .retryDelaysForTesting(second, second, refusalWaitMillis), true);
+                            .retryDelaysForTesting(second, second, refusalWaitMillis,
+                                    refusalWaitMillis), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -4825,6 +4853,32 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     EventStore store,
                                                     int capacity,
                                                     boolean commitOnCallerThread) {
+        DirectEventProcessor eventProcessor = makeUnstartedEventProcessor(diagnosticSender, eventsUri,
+                diagnosticStore, flushIntervalMillis, diagnosticIntervalMillis, closeBudgetMillis, scheduler,
+                diagnosticExecutor, store, capacity, commitOnCallerThread);
+        eventProcessor.start();
+        return eventProcessor;
+    }
+
+    private DirectEventProcessor makeUnstartedEventProcessor(EventStore store, ScheduledExecutorService scheduler) {
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        return makeUnstartedEventProcessor(new StubEventSender(), UNUSED_EVENTS_URI, null,
+                NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, false);
+    }
+
+    private DirectEventProcessor makeUnstartedEventProcessor(EventSender diagnosticSender,
+                                                             URI eventsUri,
+                                                             DiagnosticStore diagnosticStore,
+                                                             long flushIntervalMillis,
+                                                             long diagnosticIntervalMillis,
+                                                             long closeBudgetMillis,
+                                                             ScheduledExecutorService scheduler,
+                                                             ExecutorService diagnosticExecutor,
+                                                             EventStore store,
+                                                             int capacity,
+                                                             boolean commitOnCallerThread) {
         ExecutorService commitExecutor = EventUtil.makeEventsCommitExecutor();
         diagnosticExecutors.add(commitExecutor);
         lastCommitExecutor = commitExecutor;

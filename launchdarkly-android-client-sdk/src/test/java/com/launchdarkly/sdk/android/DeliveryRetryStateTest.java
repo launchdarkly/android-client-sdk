@@ -43,6 +43,22 @@ public class DeliveryRetryStateTest {
     }
 
     @Test
+    public void aRefusalAfterOrdinaryFailuresStartsFromTheExtendedInitialDelay() {
+        for (int i = 0; i < 12; i++) {
+            state.recordFailure(false, -1);
+        }
+        assertEquals(512 * SECOND, state.recordFailure(true, -1));
+    }
+
+    @Test
+    public void theExtendedDelaysAreNeverBelowTheInitialDelay() {
+        DeliveryRetryState inverted = new DeliveryRetryState(2 * SECOND, FLUSH_INTERVAL, SECOND, SECOND,
+                new Random());
+        assertEquals(2 * SECOND, inverted.recordFailure(true, -1));
+        assertEquals(2 * SECOND, inverted.recordFailure(true, -1));
+    }
+
+    @Test
     public void anOrdinaryFailureAfterARefusalKeepsTheLongerCeiling() {
         state.recordFailure(true, -1);
         assertEquals(1_024 * SECOND, state.recordFailure(false, -1));
@@ -67,8 +83,8 @@ public class DeliveryRetryStateTest {
 
     @Test
     public void aRetryAfterIsCappedAtAnHour() {
-        long wait = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, TimeUnit.HOURS.toMillis(1), new FixedRandom(0))
-                .recordFailure(false, TimeUnit.HOURS.toMillis(5));
+        long wait = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, 512 * SECOND, TimeUnit.HOURS.toMillis(1),
+                new FixedRandom(0)).recordFailure(false, TimeUnit.HOURS.toMillis(5));
         assertEquals(TimeUnit.HOURS.toMillis(1), wait);
     }
 
@@ -94,8 +110,8 @@ public class DeliveryRetryStateTest {
 
     @Test
     public void aRetryAfterDuringTheWaitCanOnlyLengthenIt() {
-        DeliveryRetryState fixed = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, TimeUnit.HOURS.toMillis(1),
-                new FixedRandom(0));
+        DeliveryRetryState fixed = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, 512 * SECOND,
+                TimeUnit.HOURS.toMillis(1), new FixedRandom(0));
         fixed.recordFailure(true, -1);
         long waiting = fixed.remainingWaitNanos();
 
@@ -108,7 +124,7 @@ public class DeliveryRetryStateTest {
 
     @Test
     public void aFailureDuringAWaitThatHasRunOutIsAnOrdinaryOne() throws InterruptedException {
-        DeliveryRetryState quick = new DeliveryRetryState(20, 1_000, 1_000, new Random());
+        DeliveryRetryState quick = new DeliveryRetryState(20, 1_000, 1_000, 1_000, new Random());
         quick.recordFailure(false, -1);
         Thread.sleep(40);
 
@@ -119,7 +135,7 @@ public class DeliveryRetryStateTest {
 
     @Test
     public void theWaitRunsOut() throws InterruptedException {
-        DeliveryRetryState quick = new DeliveryRetryState(20, 20, 20, new Random());
+        DeliveryRetryState quick = new DeliveryRetryState(20, 20, 20, 20, new Random());
         quick.recordFailure(false, -1);
         assertTrue(quick.remainingWaitNanos() > 0);
         Thread.sleep(40);

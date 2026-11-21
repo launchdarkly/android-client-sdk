@@ -24,20 +24,18 @@ final class DeliveryRetryState {
     /** The ceiling once a refusal has been seen, until a delivery is accepted. */
     static final long EXTENDED_CEILING_MILLIS = TimeUnit.HOURS.toMillis(1);
 
-    /**
-     * Where the attempt count goes at least to on a refusal, so its first wait is 2^9 initial delays, about
-     * eight and a half minutes, rather than starting from a second.
-     */
-    static final int ATTEMPTS_AFTER_UNEXPECTED = 10;
+    /** The first wait after a refusal: 2^9 initial delays, about eight and a half minutes. */
+    static final long EXTENDED_INITIAL_DELAY_MILLIS = TimeUnit.SECONDS.toMillis(512);
 
     private final long initialDelayMillis;
     private final long normalCeilingMillis;
+    private final long extendedInitialDelayMillis;
     private final long extendedCeilingMillis;
     private final Random random;
 
     // Guarded by this.
     private int attempts;
-    private long maxDelayMillis;
+    private boolean inExtendedRegime;
     private boolean waiting;
     private long nextAttemptNanos;
 
@@ -47,16 +45,18 @@ final class DeliveryRetryState {
      */
     DeliveryRetryState(long flushIntervalMillis) {
         this(DirectEventProcessor.RETRY_DELAY_MILLIS, Math.max(flushIntervalMillis,
-                DirectEventProcessor.RETRY_DELAY_MILLIS), EXTENDED_CEILING_MILLIS, new Random());
+                DirectEventProcessor.RETRY_DELAY_MILLIS), EXTENDED_INITIAL_DELAY_MILLIS,
+                EXTENDED_CEILING_MILLIS, new Random());
     }
 
-    DeliveryRetryState(long initialDelayMillis, long normalCeilingMillis, long extendedCeilingMillis,
-                       Random random) {
+    /** The extended delays are never below the initial delay (RETRY 1.5.4.1). */
+    DeliveryRetryState(long initialDelayMillis, long normalCeilingMillis, long extendedInitialDelayMillis,
+                       long extendedCeilingMillis, Random random) {
         this.initialDelayMillis = initialDelayMillis;
         this.normalCeilingMillis = normalCeilingMillis;
-        this.extendedCeilingMillis = extendedCeilingMillis;
+        this.extendedInitialDelayMillis = Math.max(extendedInitialDelayMillis, initialDelayMillis);
+        this.extendedCeilingMillis = Math.max(extendedCeilingMillis, initialDelayMillis);
         this.random = random;
-        this.maxDelayMillis = normalCeilingMillis;
     }
 
     /** The wait after a first failure, which a flush waiting on the delivery that failed sits out. */
@@ -67,7 +67,7 @@ final class DeliveryRetryState {
     /** An accepted delivery, which is all it takes for the next failure to start from a second again. */
     synchronized void recordSuccess() {
         attempts = 0;
-        maxDelayMillis = normalCeilingMillis;
+        inExtendedRegime = false;
         waiting = false;
     }
 
@@ -79,9 +79,10 @@ final class DeliveryRetryState {
      * @return how long nothing may be posted
      */
     synchronized long recordFailure(boolean unexpected, long retryAfterMillis) {
-        if (unexpected) {
-            attempts = Math.max(attempts + 1, ATTEMPTS_AFTER_UNEXPECTED);
-            maxDelayMillis = extendedCeilingMillis;
+        if (unexpected && !inExtendedRegime) {
+            // The first wait of the extended regime is its initial delay, however many failures came before.
+            inExtendedRegime = true;
+            attempts = 1;
         } else {
             attempts++;
         }
@@ -94,7 +95,9 @@ final class DeliveryRetryState {
         } else {
             // Not jittered: each instance's failures follow its own history, which already spreads them.
             int doublings = Math.min(attempts - 1, 40);
-            waitMillis = Math.min(maxDelayMillis, initialDelayMillis << doublings);
+            long baseMillis = inExtendedRegime ? extendedInitialDelayMillis : initialDelayMillis;
+            long ceilingMillis = inExtendedRegime ? extendedCeilingMillis : normalCeilingMillis;
+            waitMillis = Math.min(ceilingMillis, baseMillis << doublings);
         }
         waiting = true;
         nextAttemptNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis);

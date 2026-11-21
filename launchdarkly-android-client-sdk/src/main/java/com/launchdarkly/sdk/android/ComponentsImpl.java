@@ -108,12 +108,15 @@ abstract class ComponentsImpl {
         // normal ceiling means the specified delays.
         private long retryInitialDelayMillis;
         private long retryNormalCeilingMillis = -1;
+        private long retryExtendedInitialDelayMillis;
         private long retryExtendedCeilingMillis;
 
         EventProcessorBuilderImpl retryDelaysForTesting(long initialDelayMillis, long normalCeilingMillis,
+                                                        long extendedInitialDelayMillis,
                                                         long extendedCeilingMillis) {
             retryInitialDelayMillis = initialDelayMillis;
             retryNormalCeilingMillis = normalCeilingMillis;
+            retryExtendedInitialDelayMillis = extendedInitialDelayMillis;
             retryExtendedCeilingMillis = extendedCeilingMillis;
             return this;
         }
@@ -131,7 +134,7 @@ abstract class ComponentsImpl {
                 return new DeliveryRetryState(flushIntervalMillis);
             }
             return new DeliveryRetryState(retryInitialDelayMillis, retryNormalCeilingMillis,
-                    retryExtendedCeilingMillis, new Random());
+                    retryExtendedInitialDelayMillis, retryExtendedCeilingMillis, new Random());
         }
 
         @Override
@@ -145,7 +148,7 @@ abstract class ComponentsImpl {
                     enableCompression,
                     clientContext.getBaseLogger());
             boolean commitOnCallerThread = eventPersistence == EventPersistence.IMMEDIATE;
-            return new DirectEventProcessor(
+            DirectEventProcessor processor = new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
@@ -172,6 +175,8 @@ abstract class ComponentsImpl {
                     EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
+            processor.start();
+            return processor;
         }
 
         /**

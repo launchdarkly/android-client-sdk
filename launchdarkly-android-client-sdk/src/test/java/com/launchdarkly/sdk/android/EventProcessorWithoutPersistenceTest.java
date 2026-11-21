@@ -140,7 +140,7 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = buildOfflineEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(100))
-                            .retryDelaysForTesting(8, 8, TimeUnit.HOURS.toMillis(1)),
+                            .retryDelaysForTesting(8, 8, 4_096, TimeUnit.HOURS.toMillis(1)),
                     true, platformState);
             eventProcessor.setOffline(false);
             try {
