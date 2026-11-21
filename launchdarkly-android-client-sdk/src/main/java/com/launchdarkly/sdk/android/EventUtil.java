@@ -4,6 +4,8 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
@@ -18,7 +20,9 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 abstract class EventUtil {
@@ -41,6 +45,77 @@ abstract class EventUtil {
     static ExecutorService makeDiagnosticsTaskExecutor() {
         return Executors.newSingleThreadExecutor(
                 makeThreadFactory("LaunchDarkly-DiagnosticEventPoster-%d"));
+    }
+
+    /**
+     * A thread of its own for the event commits no caller waits on, kept apart from the one that
+     * delivers, so that a write never queues behind a request held open by a slow network.
+     */
+    static ExecutorService makeEventsCommitExecutor() {
+        return Executors.newSingleThreadExecutor(
+                makeThreadFactory("LaunchDarkly-event-store-%d"));
+    }
+
+    /**
+     * Keeps an unexpected failure from killing a repeating task or bubbling out of the executor.
+     * Anything that escapes a run suppresses the rest of a {@code scheduleWithFixedDelay} series,
+     * so this catches {@code Throwable} and not just {@code Exception}. Otherwise a
+     * {@code StackOverflowError} from nested {@code LDValue} data, or an {@code OutOfMemoryError}
+     * growing the payload stream, would stop flushing for the life of the process with nothing
+     * logged.
+     */
+    static Runnable guarded(LDLogger logger, Runnable task) {
+        return () -> {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                logUnexpectedError(logger, t);
+            }
+        };
+    }
+
+    static void logUnexpectedError(LDLogger logger, Throwable e) {
+        logger.error("Unexpected error in event processor: {}", LogValues.exceptionSummary(e));
+        logger.debug("{}", LogValues.exceptionTrace(e));
+    }
+
+    /**
+     * Keeps a repeating task scheduled while it should be, and canceled while it should not.
+     *
+     * @param task what to run, already wrapped so that nothing escapes it
+     * @return the task now scheduled, or null if there is none
+     */
+    static ScheduledFuture<?> enableOrDisableTask(
+            ScheduledExecutorService scheduler,
+            boolean shouldEnable,
+            ScheduledFuture<?> currentTask,
+            long intervalMillis,
+            Runnable task
+    ) {
+        if (!shouldEnable) {
+            if (currentTask != null) {
+                currentTask.cancel(false);
+            }
+            return null;
+        }
+        if (currentTask != null && !currentTask.isDone()) {
+            return currentTask;
+        }
+        if (currentTask != null) {
+            // Backstop for a throwable that escaped the wrapping anyway, such as one thrown while
+            // logging the first. The executor marks the repeating future done and never fires it
+            // again, and holding that future here would make every later enable a no-op.
+            currentTask.cancel(false);
+        }
+        try {
+            // Fixed delay rather than fixed rate: a cached process stops running its tasks without
+            // stopping the clock, so at a fixed rate it would come back owing every run it missed and
+            // fire them one after another.
+            return scheduler.scheduleWithFixedDelay(task, intervalMillis, intervalMillis,
+                    TimeUnit.MILLISECONDS);
+        } catch (RuntimeException e) { // the executor was shut down under us
+            return null;
+        }
     }
 
     private static ThreadFactory makeThreadFactory(String nameFormat) {

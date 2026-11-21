@@ -174,6 +174,29 @@ public class LDUtil {
         return urlSafeBase64Hash(JsonSerialization.serialize(context));
     }
 
+    /**
+     * A hash for a file or directory name. Unlike {@link #urlSafeBase64Hash(String)} it does not go
+     * through the Android framework's Base64, so it also runs in plain JVM tests, and it has no padding
+     * character.
+     *
+     * @param bytes how many bytes of the digest to render, so a caller can trade length for headroom
+     * @return the first {@code bytes} bytes of the input's SHA-256, in lowercase hex
+     */
+    static String hexDigest(String input, int bytes) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(Charset.forName("UTF-8")));
+            StringBuilder hex = new StringBuilder(bytes * 2);
+            for (int i = 0; i < bytes; i++) {
+                hex.append(Character.forDigit((hash[i] >> 4) & 0xf, 16));
+                hex.append(Character.forDigit(hash[i] & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e); // shouldn't be possible; SHA-256 is built in
+        }
+    }
+
     static String urlSafeBase64(LDContext context) {
         return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
                 Base64.URL_SAFE + Base64.NO_WRAP);
@@ -237,6 +260,26 @@ public class LDUtil {
      */
     static boolean isHttpErrorUnexpected(int statusCode) {
         return !isHttpErrorRecoverable(statusCode);
+    }
+
+    /**
+     * Tests whether the events service refused an event payload for what it holds rather than for who sent
+     * it: one it cannot read (400), too large for it (413), of a type it does not take (415), or read but
+     * not accepted (422). Posting the same body again will not change the answer, though another body may
+     * be taken.
+     * @param statusCode the HTTP status
+     * @return true for a refusal of the payload
+     */
+    static boolean isEventPayloadRefused(int statusCode) {
+        switch (statusCode) {
+            case 400: // bad request
+            case 413: // content too large
+            case 415: // unsupported media type
+            case 422: // unprocessable content
+                return true;
+            default:
+                return false;
+        }
     }
 
     static void logExceptionAtErrorLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {

@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -42,8 +43,7 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
     private static final int CAPACITY = 100;
 
     // For the tests that fill the summarizer to its context limit. Each counted context becomes its
-    // own summary event, so the flush is roughly this many summaries; at CAPACITY that came to about
-    // 28 KB, past what the test server reliably records with its single unlooped read of the body.
+    // own summary event, so the flush is roughly this many summaries.
     private static final int CONTEXT_LIMIT = 10;
 
     private static final int BURST_THREADS = 4;
@@ -231,6 +231,45 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void aCommitPointMakesRoomInTheSummarizer() throws Exception {
+        assumePersisting();
+        // Counters are materialized into summary events and reset at every commit point, so the
+        // summarizer only ever holds the contexts seen since the last one. That reset is what keeps
+        // the cardinality limit from binding: without it an application identifying its way through
+        // more contexts than capacity would start losing counts partway through.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            try {
+                int contexts = CAPACITY * 3;
+                for (int i = 0; i < contexts; i++) {
+                    LDContext context = contextNumber(i);
+                    eventProcessor.recordEvaluationEvent(context, FLAG_KEY, FLAG_VERSION, VARIATION,
+                            FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                    eventProcessor.recordIdentifyEvent(context); // a commit point
+                }
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(contexts, countEventsOfKind(events, "summary"));
+                assertFalse("evaluations were turned away even though every one of them followed a"
+                                + " commit point that should have made room",
+                        logged("Exceeded the number of contexts"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    private boolean logged(String messageSubstring) {
+        for (String message : logging.logCapture.getMessageStrings()) {
+            if (message.contains(messageSubstring)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static LDContext contextNumber(int i) {

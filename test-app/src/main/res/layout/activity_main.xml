@@ -68,6 +68,36 @@
         android:layout_alignParentRight="true"
         android:text="Evaluate Flag" />
 
+    <!--
+        Event persistence is part of the client's configuration, so choosing another one restarts the
+        client. The choice is kept across launches: see MainActivity#setupPersistenceSpinner.
+    -->
+    <LinearLayout
+        android:id="@+id/persistence_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/eval_button"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/persistence_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Persistence:"
+            android:textColor="@android:color/black"
+            android:textSize="16sp" />
+
+        <Spinner
+            android:id="@+id/persistence_spinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:spinnerMode="dropdown" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/textView"
         android:layout_width="wrap_content"
@@ -84,12 +114,32 @@
         android:id="@+id/result_textView"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
-        android:layout_above="@+id/dedupe_status"
+        android:layout_above="@+id/benchmark_button"
         android:layout_below="@+id/space"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
         android:layout_alignParentRight="true" />
+
+    <!-- The event persistence benchmark: see MainActivity#setupBenchmarkButton. -->
+    <Button
+        android:id="@+id/benchmark_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/dedupe_status"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:text="Benchmark" />
+
+    <!-- One 20 MB post past the SDK: see MainActivity#setupOversizedPostButton. -->
+    <Button
+        android:id="@+id/oversized_post_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignTop="@+id/benchmark_button"
+        android:layout_toEndOf="@+id/benchmark_button"
+        android:layout_toRightOf="@+id/benchmark_button"
+        android:text="Post 20 MB" />
 
     <TextView
         android:id="@+id/dedupe_status"
@@ -122,7 +172,7 @@
         android:id="@+id/kill_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/identify_button"
+        android:layout_above="@id/over_refresh_row"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
@@ -151,11 +201,42 @@
             android:text="Eval+Crash now" />
     </LinearLayout>
 
+    <!--
+        Many evaluations of one flag in a row, timed either side of the event store filling up. See
+        MainActivity#setupOverRefreshButton for what the two numbers mean. Next to it, events too large
+        to fit in one batch: see MainActivity#setupFillBatchesButton.
+    -->
+    <LinearLayout
+        android:id="@+id/over_refresh_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/identify_button"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/over_refresh_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Over-Refresh Eval" />
+
+        <Button
+            android:id="@+id/fill_batches_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Fill 3 Batches" />
+    </LinearLayout>
+
     <Space
         android:id="@+id/space"
         android:layout_width="0dp"
         android:layout_height="8dp"
-        android:layout_below="@+id/eval_button"
+        android:layout_below="@+id/persistence_row"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
