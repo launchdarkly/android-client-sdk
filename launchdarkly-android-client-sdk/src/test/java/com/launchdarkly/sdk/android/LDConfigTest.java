@@ -50,6 +50,49 @@ public class LDConfigTest {
     }
 
     @Test
+    public void testBuilderPayloadFilterDefaultsToNull() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
+
+        assertNull(config.getPayloadFilter());
+    }
+
+    @Test
+    public void testBuilderPayloadFilterValid() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .logAdapter(logging.logAdapter)
+                .payloadFilter("mobile.flags_v2-a")
+                .build();
+
+        assertEquals("mobile.flags_v2-a", config.getPayloadFilter());
+        logging.assertNoErrorsLogged();
+    }
+
+    @Test
+    public void testBuilderPayloadFilterEmptyIsIgnored() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .logAdapter(logging.logAdapter)
+                .payloadFilter("")
+                .build();
+
+        assertNull(config.getPayloadFilter());
+        logging.assertNoErrorsLogged();
+    }
+
+    @Test
+    public void testBuilderPayloadFilterInvalidIsDroppedWithError() {
+        String[] invalidKeys = {"-starts-with-hyphen", ".starts-with-period", "has space", "has/slash", "has&amp"};
+        for (String key : invalidKeys) {
+            LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .logAdapter(logging.logAdapter)
+                    .payloadFilter(key)
+                    .build();
+
+            assertNull(key, config.getPayloadFilter());
+            logging.assertErrorLogged("Payload filter \"" + key + "\" is invalid");
+        }
+    }
+
+    @Test
     public void testBuilderDiagnosticOptOut() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).diagnosticOptOut(true).build();
 

@@ -52,6 +52,8 @@ public class TestService extends NanoHTTPD {
             "retry-conformance-fdv1-streaming",
             "retry-conformance-fdv1-polling",
             "client-use-post",
+            "filtering",
+            "filtering-strict",
             "fdv1-fallback"
     };
     private static final String MIME_JSON = "application/json";

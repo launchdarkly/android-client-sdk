@@ -4,6 +4,7 @@ import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
@@ -28,6 +29,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import okhttp3.MediaType;
 
@@ -64,6 +66,7 @@ public class LDConfig {
 
     static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
+    private static final Pattern PAYLOAD_FILTER_PATTERN = Pattern.compile("^[a-zA-Z0-9][._\\-a-zA-Z0-9]*$");
 
     private final Map<String, String> mobileKeys;
 
@@ -88,6 +91,7 @@ public class LDConfig {
     private final int maxCachedContexts;
     private final boolean offline;
     private final long connectionModeStateDebounceMs;
+    private final String payloadFilter;
     private final PersistentDataStore persistentDataStore; // configurable for testing only
 
     LDConfig(Map<String, String> mobileKeys,
@@ -107,6 +111,7 @@ public class LDConfig {
              boolean generateAnonymousKeys,
              boolean autoEnvAttributes,
              long connectionModeStateDebounceMs,
+             String payloadFilter,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -127,6 +132,7 @@ public class LDConfig {
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.autoEnvAttributes = autoEnvAttributes;
         this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
+        this.payloadFilter = payloadFilter;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -179,6 +185,14 @@ public class LDConfig {
      */
     public boolean isEvaluationReasons() {
         return evaluationReasons;
+    }
+
+    /**
+     * @return the payload filter key, or null if no valid filter was configured
+     * @see Builder#payloadFilter(String)
+     */
+    public String getPayloadFilter() {
+        return payloadFilter;
     }
 
     /**
@@ -277,6 +291,8 @@ public class LDConfig {
         private PersistentDataStore persistentDataStore;
 
         private long connectionModeStateDebounceMs = StateDebounceManager.DEFAULT_DEBOUNCE_MS;
+
+        private String payloadFilter = null;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = LDPackageConsts.DEFAULT_LOGGER_NAME;
@@ -595,6 +611,25 @@ public class LDConfig {
         }
 
         /**
+         * Sets the key of a payload filter to apply to flag data requests.
+         * <p>
+         * Payload filters are defined per project in LaunchDarkly. When a filter key is set, the SDK
+         * adds it as the {@code filter} query parameter to its streaming and polling requests, and
+         * LaunchDarkly limits the flags it sends to the ones selected by that filter.
+         * <p>
+         * The key must contain only alphanumeric characters, periods, underscores, and hyphens, and
+         * must start with an alphanumeric character. If the key is invalid, the SDK logs an error and
+         * requests the full environment instead.
+         *
+         * @param payloadFilter the payload filter key, or null for no filter
+         * @return the builder
+         */
+        public Builder payloadFilter(String payloadFilter) {
+            this.payloadFilter = payloadFilter;
+            return this;
+        }
+
+        /**
          * Set to true to opt out of sending diagnostics data.
          *
          * Unless the diagnosticOptOut field is set to true, the client will send some diagnostics data to the
@@ -774,6 +809,19 @@ public class LDConfig {
             return LDTimberLogging.adapter();
         }
 
+        private String validPayloadFilterOrNull(LDLogAdapter actualLogAdapter) {
+            if (payloadFilter == null || payloadFilter.isEmpty()) {
+                return null;
+            }
+            if (!PAYLOAD_FILTER_PATTERN.matcher(payloadFilter).matches()) {
+                LDLogger.withAdapter(actualLogAdapter, loggerName).error(
+                        "Payload filter \"{}\" is invalid; the full environment will be requested instead",
+                        payloadFilter);
+                return null;
+            }
+            return payloadFilter;
+        }
+
         /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
@@ -840,6 +888,7 @@ public class LDConfig {
                     generateAnonymousKeys,
                     autoEnvAttributes,
                     connectionModeStateDebounceMs,
+                    validPayloadFilterOrNull(actualLogAdapter),
                     persistentDataStore,
                     actualLogAdapter,
                     loggerName);
