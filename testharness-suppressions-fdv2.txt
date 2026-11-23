@@ -1,3 +1,4 @@
 events/feature events/single-kind anonymous context redacts all attributes
 events/feature events/multi-kind with anonymous context redacts attributes appropriately
 events/context properties/single-kind, allAttributesPrivate, slash-prefixed attribute name
+streaming/fdv2/FDv1 fallback directive/directive without FDv1 fallback configured halts the data system

@@ -52,7 +52,8 @@ public class TestService extends NanoHTTPD {
             "retry-conformance-fdv1-streaming",
             "retry-conformance-fdv1-polling",
             "client-use-post",
-            "fdv1-fallback"
+            "fdv1-fallback",
+            "diagnostic-events"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()
