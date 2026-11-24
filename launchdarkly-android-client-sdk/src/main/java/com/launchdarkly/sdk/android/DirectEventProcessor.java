@@ -151,6 +151,13 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private volatile boolean launchGateOpen;
 
+    /**
+     * Whether going online again ended an ordinary failure's wait while the gate was still closed, which owes
+     * the delivery it would have submitted to the gate opening. Ending the wait is not undone, and nothing
+     * else would deliver before the next flush interval. Guarded by {@link #stateLock}.
+     */
+    private boolean deliveryOwedAtGate;
+
     /** Set once, under {@link #stateLock}, when the SDK first goes online; the gate counts from then. */
     private volatile boolean wentOnline;
     private volatile long wentOnlineNanos;
@@ -436,6 +443,16 @@ final class DirectEventProcessor implements EventProcessor {
                 return;
             }
             updateScheduledTasks(inBackground.get(), offline);
+            // Going online again keeps to the flush interval, with one exception: when the last post had an
+            // ordinary failure, such as no network, its wait ends and a delivery goes now. A wait the service
+            // set, with a Retry-After or a refusal, stands.
+            if (!offline && !closed.get() && retryState.endOrdinaryWait()) {
+                if (launchGateOpen) {
+                    deliveryScheduler.submit(this::deliverPayload);
+                } else {
+                    deliveryOwedAtGate = true;
+                }
+            }
         }
         deliveryScheduler.wakePacedDelivery();
     }
@@ -1080,8 +1097,14 @@ final class DirectEventProcessor implements EventProcessor {
         // Events a previous run left on disk have already waited out a whole process, so they do not
         // wait out an interval as well, only the launch gate. An application that dies within one interval
         // of every start would otherwise never deliver them.
-        if (!stopped && !offline && launchGateOpen && hasEventsFromPreviousRun.compareAndSet(true, false)) {
-            deliveryScheduler.submit(this::deliverPayload);
+        if (!stopped && !offline && launchGateOpen) {
+            // One delivery covers both: it sends what a previous run left first. Offline, going online again
+            // asks anew.
+            boolean previousRun = hasEventsFromPreviousRun.compareAndSet(true, false);
+            if (previousRun || deliveryOwedAtGate) {
+                deliveryOwedAtGate = false;
+                deliveryScheduler.submit(this::deliverPayload);
+            }
         }
         diagnostics.setMode(!stopped && !offline && !inBackground, launchGateOpen);
     }
