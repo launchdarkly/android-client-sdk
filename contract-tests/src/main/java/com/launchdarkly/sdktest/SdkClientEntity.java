@@ -91,7 +91,10 @@ public class SdkClientEntity {
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
-    Future<LDClient> initFuture = LDClient.init(application, config, clientSideParams.initialContext);
+    // An old-style user arrives as JSON with no "kind"; LDContext's Gson adapter converts it.
+    LDContext initialContext = clientSideParams.initialContext != null ?
+            clientSideParams.initialContext : clientSideParams.initialUser;
+    Future<LDClient> initFuture = LDClient.init(application, config, initialContext);
     // Try to initialize client, but if it fails, keep going in case the test harness wants us to
     // work with an uninitialized client
     try {
@@ -213,7 +216,7 @@ public class SdkClientEntity {
 
   private void doIdentifyEvent(IdentifyEventParams params) {
     try {
-      client.identify(params.context).get();
+      client.identify(params.context != null ? params.context : params.user).get();
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
     }

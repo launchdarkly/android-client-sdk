@@ -83,6 +83,7 @@ public abstract class Representations {
 
     public static class SdkConfigClientSideParams {
         LDContext initialContext;
+        LDContext initialUser;
         boolean evaluationReasons;
         boolean useReport;
         boolean usePost;
@@ -186,6 +187,7 @@ public abstract class Representations {
 
     public static class IdentifyEventParams {
         LDContext context;
+        LDContext user;
     }
 
     public static class CustomEventParams {
