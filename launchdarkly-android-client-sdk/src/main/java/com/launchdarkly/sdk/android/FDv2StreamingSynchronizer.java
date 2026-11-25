@@ -67,7 +67,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     @Nullable
     private final FDv2Requestor requestor;
     private final boolean evaluationReasons;
-    private final String payloadFilter;
     private final int initialReconnectDelayMillis;
     @Nullable
     private final DiagnosticStore diagnosticStore;
@@ -93,7 +92,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param requestor                    optional requestor for handling ping events via poll; may be null
      * @param initialReconnectDelayMillis  delay before reconnecting after an error, in milliseconds
      * @param evaluationReasons           true to request evaluation reasons in the stream
-     * @param payloadFilter                optional payload filter key; sent as {@code filter} query param
      * @param usePost                      true to send the context in the request body via HTTP POST
      * @param httpProperties               HTTP configuration for the stream request
      * @param executor                     executor used to run the streaming loop on a background
@@ -109,7 +107,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             @Nullable FDv2Requestor requestor,
             int initialReconnectDelayMillis,
             boolean evaluationReasons,
-            @Nullable String payloadFilter,
             boolean usePost,
             @NonNull HttpProperties httpProperties,
             @NonNull Executor executor,
@@ -123,7 +120,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         this.requestor = requestor;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
         this.evaluationReasons = evaluationReasons;
-        this.payloadFilter = payloadFilter;
         this.usePost = usePost;
         this.httpProperties = httpProperties;
         this.executor = executor;
@@ -254,7 +250,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         if (evaluationReasons) {
             uri = HttpHelpers.addQueryParam(uri, "withReasons", "true");
         }
-        return LDUtil.withPayloadFilter(uri, payloadFilter);
+        return uri;
     }
 
     private void recordStreamInit(boolean failed) {

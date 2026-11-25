@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -263,7 +264,7 @@ public class DataSystemComponentsTest {
     }
 
     @Test
-    public void pollingSynchronizerSendsPayloadFilter() throws Exception {
+    public void pollingSynchronizerOmitsPayloadFilter() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_POLL_RESPONSE_JSON))) {
             Synchronizer sync = new DataSystemComponents.PollingSynchronizerBuilderImpl()
                     .build(makeInputs(server, httpConfig(false, false), "mobile-flags"));
@@ -271,7 +272,7 @@ public class DataSystemComponentsTest {
                 sync.next().get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertEquals("?filter=mobile-flags", req.getQuery());
+                assertNull(req.getQuery());
             } finally {
                 sync.close();
             }
@@ -279,7 +280,7 @@ public class DataSystemComponentsTest {
     }
 
     @Test
-    public void streamingSynchronizerSendsPayloadFilter() throws Exception {
+    public void streamingSynchronizerOmitsPayloadFilter() throws Exception {
         String serverIntent = "event: server-intent\ndata: {\"payloads\":[{\"id\":\"p1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"\"}]}";
         String payloadTransferred = "event: payload-transferred\ndata: {\"state\":\"(p:p1:100)\",\"version\":100}";
 
@@ -294,7 +295,7 @@ public class DataSystemComponentsTest {
                 sync.next().get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertEquals("?filter=mobile-flags", req.getQuery());
+                assertNull(req.getQuery());
             } finally {
                 sync.close();
             }

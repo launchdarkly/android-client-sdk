@@ -142,9 +142,7 @@ public abstract class DataSystemComponents {
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
-                    inputs.isEvaluationReasons(),
-                    DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
-                    inputs.getHttp().shouldUsePost(),
+                    inputs.isEvaluationReasons(), inputs.getHttp().shouldUsePost(),
                     httpProps, inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
@@ -399,8 +397,6 @@ public abstract class DataSystemComponents {
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
                 StandardEndpoints.FDV2_POLLING_REQUEST_POST_BASE_PATH,
                 httpProps, inputs.getHttp().shouldUsePost(),
-                inputs.isEvaluationReasons(),
-                DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
-                inputs.getBaseLogger());
+                inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
     }
 }

@@ -95,6 +95,34 @@ public class LDConfigTest {
     }
 
     @Test
+    public void testBuilderPayloadFilterWithDataSystemLogsWarning() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .logAdapter(logging.logAdapter)
+                .mobileKey("primary-key")
+                .payloadFilter("mobile-flags")
+                .secondaryEnvironment("other", "other-key", "other-flags")
+                .dataSystem(Components.dataSystem())
+                .build();
+
+        assertEquals("mobile-flags", config.getPayloadFilter());
+        assertEquals("other-flags", config.getPayloadFilter("other"));
+        logging.assertWarnLogged("Payload filter \"mobile-flags\" for the \"" + LDConfig.primaryEnvironmentName
+                + "\" environment applies only to FDv1 fallback requests");
+        logging.assertWarnLogged("Payload filter \"other-flags\" for the \"other\" environment");
+    }
+
+    @Test
+    public void testBuilderPayloadFilterWithoutDataSystemLogsNoWarning() {
+        new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .logAdapter(logging.logAdapter)
+                .mobileKey("primary-key")
+                .payloadFilter("mobile-flags")
+                .build();
+
+        logging.assertNoWarningsLogged();
+    }
+
+    @Test
     public void testBuilderSecondaryEnvironment() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .logAdapter(logging.logAdapter)
