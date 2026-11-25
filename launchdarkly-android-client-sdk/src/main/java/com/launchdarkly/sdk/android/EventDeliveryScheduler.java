@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import androidx.annotation.NonNull;
+
 import com.launchdarkly.logging.LDLogger;
 
 import java.util.concurrent.Callable;
@@ -8,6 +10,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Puts the event processor's deliveries on its scheduler thread, one at a time, and decides when that thread
@@ -21,7 +24,46 @@ import java.util.concurrent.TimeUnit;
 final class EventDeliveryScheduler {
     /** A requested delivery, given the future its callers wait on and who joined it by the time it began. */
     interface RequestedDelivery {
-        void run(LDAwaitFuture<Boolean> result, Joined joined);
+        void run(RequestedAnswer result, Joined joined);
+    }
+
+    /**
+     * What a requested delivery answers its callers. Where the answer reports events lost for good, a caller
+     * whose wait times out or is interrupted before it comes leaves the loss for the next caller to hear about.
+     */
+    static final class RequestedAnswer extends LDAwaitFuture<Boolean> {
+        /** Set by the delivery before it answers, where the answer reports a loss: what leaves it unheard. */
+        volatile Runnable lossUnheard;
+
+        @Override
+        public Boolean get() throws ExecutionException, InterruptedException {
+            try {
+                return super.get();
+            } catch (InterruptedException e) {
+                stoppedWaiting();
+                throw e;
+            }
+        }
+
+        @Override
+        public Boolean get(long timeout, @NonNull TimeUnit unit)
+                throws ExecutionException, TimeoutException, InterruptedException {
+            try {
+                return super.get(timeout, unit);
+            } catch (TimeoutException | InterruptedException e) {
+                stoppedWaiting();
+                throw e;
+            }
+        }
+
+        private void stoppedWaiting() {
+            addListener(() -> {
+                Runnable unheard = lossUnheard;
+                if (unheard != null) {
+                    unheard.run();
+                }
+            });
+        }
     }
 
     /** Who joined a requested delivery by the time it began. */
@@ -79,7 +121,7 @@ final class EventDeliveryScheduler {
      * on instead of queuing another. Null while nothing is queued, and cleared again as the queued
      * delivery begins, which is the point past which it can no longer speak for what is recorded.
      */
-    private LDAwaitFuture<Boolean> pendingFlush;
+    private RequestedAnswer pendingFlush;
 
     /**
      * Whether a caller who is there to hear the outcome is waiting on {@link #pendingFlush}, as opposed to only
@@ -154,14 +196,14 @@ final class EventDeliveryScheduler {
      * @return what the delivery answers, or false at once if it is shutting down and nothing will be sent
      */
     Future<Boolean> queue(boolean answersACaller, boolean bypassBackoff, RequestedDelivery delivery) {
-        LDAwaitFuture<Boolean> result;
+        RequestedAnswer result;
         synchronized (flushLock) {
             if (pendingFlush != null) {
                 pendingFlushAnswersACaller |= answersACaller;
                 pendingFlushBypassesBackoff |= bypassBackoff;
                 return pendingFlush;
             }
-            LDAwaitFuture<Boolean> queued = new LDAwaitFuture<>();
+            RequestedAnswer queued = new RequestedAnswer();
             if (submit(() -> delivery.run(queued, begin(queued))) == null) {
                 return new LDSuccessFuture<>(false);
             }
@@ -182,7 +224,7 @@ final class EventDeliveryScheduler {
      *
      * @return who joined it
      */
-    private Joined begin(LDAwaitFuture<Boolean> result) {
+    private Joined begin(RequestedAnswer result) {
         synchronized (flushLock) {
             if (pendingFlush != result) {
                 return Joined.NOBODY;

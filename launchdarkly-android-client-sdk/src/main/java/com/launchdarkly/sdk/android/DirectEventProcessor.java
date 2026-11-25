@@ -195,6 +195,13 @@ final class DirectEventProcessor implements EventProcessor {
     private long claimedLostEvents;
 
     /**
+     * Whether a loss was claimed for a caller who stopped waiting before the answer reporting it came, so
+     * that the next delivery a caller waits on reports it instead. Set from that caller's thread, or the
+     * thread that answers, and taken on the scheduler thread.
+     */
+    private final AtomicBoolean lossOwed = new AtomicBoolean(false);
+
+    /**
      * How many refusals of the payload in a row drop a batch: a 400, 413, 415 or 422, in any mix
      * ({@link LDUtil#isEventPayloadRefused}). Each says the service will not take this body, which posting
      * it again will not change, and a kept batch is the oldest and so the next posted: kept for good, it
@@ -401,11 +408,13 @@ final class DirectEventProcessor implements EventProcessor {
      * Runs on the scheduler thread.
      *
      * @param mark the loss count as of the close of that delivery's batch
-     * @return true if a loss at or before the mark belonged to no earlier delivery a caller waited on
+     * @return true if a loss at or before the mark belonged to no earlier delivery a caller waited on, or
+     *   one was claimed for a caller who stopped waiting before it heard of it
      */
     private boolean claimEventsLost(long mark) {
+        boolean owed = lossOwed.getAndSet(false);
         if (mark <= claimedLostEvents) {
-            return false;
+            return owed;
         }
         claimedLostEvents = mark;
         return true;
@@ -510,7 +519,7 @@ final class DirectEventProcessor implements EventProcessor {
      * on had passed them, because a delivery that finds nothing to send is not evidence that everything
      * recorded arrived.
      */
-    private void runDelivery(LDAwaitFuture<Boolean> result, EventDeliveryScheduler.Joined joined) {
+    private void runDelivery(EventDeliveryScheduler.RequestedAnswer result, EventDeliveryScheduler.Joined joined) {
         DeliveryOutcome outcome;
         try {
             outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun(joined.bypassesBackoff));
@@ -522,6 +531,12 @@ final class DirectEventProcessor implements EventProcessor {
         }
         // Claimed before the next delivery can run, however long this one's retry takes to answer.
         boolean lostEvents = joined.answersACaller && claimEventsLost(outcome.lostEventsMark);
+        if (lostEvents) {
+            // Claimed for this delivery's callers, a loss a caller does not stay to hear of is not heard
+            // of at all unless the next delivery reports it too. Two callers joined to this one may then
+            // both hear of it, which is the safe direction.
+            result.lossUnheard = () -> lossOwed.set(true);
+        }
         if (outcome.retry == null) {
             answer(result, outcome.delivered, lostEvents);
         } else {
