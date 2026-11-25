@@ -27,6 +27,7 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -646,6 +647,41 @@ public class StreamingDataSourceTest {
             RequestInfo request = server.getRecorder().requireRequest();
             assertEquals("REPORT", request.getMethod());
             assertEquals("?filter=mobile-flags", request.getQuery());
+        }
+    }
+
+    @Test
+    public void startSendsSecondaryEnvironmentPayloadFilter() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(putEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .logAdapter(logging.logAdapter)
+                    .serviceEndpoints(Components.serviceEndpoints().streaming(server.getUri()))
+                    .mobileKey(MOBILE_KEY)
+                    .secondaryMobileKeys(Collections.singletonMap("other", "other-mobile-key"))
+                    .payloadFilter("mobile-flags")
+                    .secondaryPayloadFilters(Collections.singletonMap("other", "other-flags"))
+                    .build();
+            ClientContext baseClientContext = ClientContextImpl.fromConfig(
+                    config, "other-mobile-key", "other", perEnvironmentData,
+                    makeFeatureFetcher(), CONTEXT,
+                    logging.logger, platformState, environmentReporter, taskExecutor);
+            ClientContext clientContext = ClientContextImpl.forDataSource(
+                    baseClientContext, dataSourceUpdateSink, CONTEXT, false, false);
+            StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                    .build(clientContext);
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertEquals("?filter=other-flags", request.getQuery());
         }
     }
 

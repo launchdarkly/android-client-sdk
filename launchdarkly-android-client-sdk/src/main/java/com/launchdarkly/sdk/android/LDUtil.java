@@ -184,7 +184,7 @@ public class LDUtil {
     @Nullable
     static String payloadFilter(ClientContext clientContext) {
         LDConfig config = clientContext.getConfig();
-        return config == null ? null : config.getPayloadFilter();
+        return config == null ? null : config.getPayloadFilter(clientContext.getEnvironmentName());
     }
 
     static URI withPayloadFilter(URI uri, @Nullable String payloadFilter) {
