@@ -12,10 +12,6 @@ import java.net.URI;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
-
-import javax.net.ssl.SSLHandshakeException;
-import javax.net.ssl.SSLPeerUnverifiedException;
-
 import okhttp3.Headers;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -73,8 +69,8 @@ final class AnalyticsEventSender implements Closeable {
         final boolean success;
         /**
          * For a failure, whether it is unlikely to pass soon: a 4xx other than a refusal of the payload
-         * ({@link LDUtil#isEventPayloadRefused}), 408 and 429, or a TLS or certificate failure. This only
-         * decides how long the next post waits.
+         * ({@link LDUtil#isEventPayloadRefused}), 408 and 429. This only decides how long the next post
+         * waits.
          */
         final boolean unexpected;
         /** The HTTP status, or 0 where no response arrived. */
@@ -133,9 +129,8 @@ final class AnalyticsEventSender implements Closeable {
             return new Result(false, unexpected, response.code(), retryAfterMillis(response), null);
         } catch (IOException e) {
             logger.warn("Error posting events: {}", LogValues.exceptionSummary(e));
-            // A certificate that will not validate is a misconfiguration, which waits like a refusal.
-            boolean unexpected = e instanceof SSLHandshakeException || e instanceof SSLPeerUnverifiedException;
-            return new Result(false, unexpected, 0, -1, null);
+            // No response, TLS and certificate failures included, takes the normal backoff.
+            return new Result(false, false, 0, -1, null);
         }
     }
 
