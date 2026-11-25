@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -94,93 +95,107 @@ public class LDConfigTest {
     }
 
     @Test
-    public void testBuilderPayloadFilterAppliesToSecondaryEnvironments() {
-        Map<String, String> secondaryKeys = new HashMap<>();
-        secondaryKeys.put("inherits", "inherits-key");
-        secondaryKeys.put("overrides", "overrides-key");
+    public void testBuilderSecondaryEnvironment() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .logAdapter(logging.logAdapter)
                 .mobileKey("primary-key")
-                .secondaryMobileKeys(secondaryKeys)
                 .payloadFilter("mobile-flags")
-                .secondaryPayloadFilters(Collections.singletonMap("overrides", "other-flags"))
+                .secondaryEnvironment("filtered", "filtered-key", "other-flags")
+                .secondaryEnvironment("unfiltered", "unfiltered-key", null)
                 .build();
 
+        Map<String, String> expectedKeys = new HashMap<>();
+        expectedKeys.put(LDConfig.primaryEnvironmentName, "primary-key");
+        expectedKeys.put("filtered", "filtered-key");
+        expectedKeys.put("unfiltered", "unfiltered-key");
+        assertEquals(expectedKeys, config.getMobileKeys());
         assertEquals("mobile-flags", config.getPayloadFilter());
         assertEquals("mobile-flags", config.getPayloadFilter(LDConfig.primaryEnvironmentName));
-        assertEquals("mobile-flags", config.getPayloadFilter("inherits"));
-        assertEquals("other-flags", config.getPayloadFilter("overrides"));
-        assertEquals("mobile-flags", config.getPayloadFilter("not-an-environment"));
+        assertEquals("other-flags", config.getPayloadFilter("filtered"));
+        assertNull(config.getPayloadFilter("unfiltered"));
+        assertNull(config.getPayloadFilter("not-an-environment"));
         logging.assertNoErrorsLogged();
-        logging.assertNoWarningsLogged();
     }
 
     @Test
-    public void testBuilderSecondaryPayloadFiltersWithoutPrimaryFilter() {
+    public void testBuilderPayloadFilterDoesNotApplyToSecondaryMobileKeys() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey("primary-key")
                 .secondaryMobileKeys(Collections.singletonMap("other", "other-key"))
-                .secondaryPayloadFilters(Collections.singletonMap("other", "other-flags"))
+                .payloadFilter("mobile-flags")
                 .build();
 
-        assertNull(config.getPayloadFilter());
+        assertEquals("mobile-flags", config.getPayloadFilter());
+        assertNull(config.getPayloadFilter("other"));
+    }
+
+    @Test
+    public void testBuilderSecondaryEnvironmentAddsToSecondaryMobileKeys() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey("primary-key")
+                .secondaryMobileKeys(Collections.singletonMap("plain", "plain-key"))
+                .secondaryEnvironment("filtered", "filtered-key", "other-flags")
+                .build();
+
+        assertEquals("plain-key", config.getMobileKeys().get("plain"));
+        assertEquals("filtered-key", config.getMobileKeys().get("filtered"));
+        assertNull(config.getPayloadFilter("plain"));
+        assertEquals("other-flags", config.getPayloadFilter("filtered"));
+    }
+
+    @Test
+    public void testBuilderSecondaryMobileKeysReplacesSecondaryEnvironments() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey("primary-key")
+                .secondaryEnvironment("other", "other-key", "other-flags")
+                .secondaryMobileKeys(Collections.singletonMap("other", "other-key"))
+                .build();
+
+        assertEquals("other-key", config.getMobileKeys().get("other"));
+        assertNull(config.getPayloadFilter("other"));
+    }
+
+    @Test
+    public void testBuilderSecondaryEnvironmentRejectsInvalidArguments() {
+        LDConfig.Builder builder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey("primary-key")
+                .secondaryEnvironment("other", "other-key", "other-flags");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.secondaryEnvironment(LDConfig.primaryEnvironmentName, "new-key", null));
+        assertThrows(IllegalArgumentException.class, () -> builder.secondaryEnvironment("other", "new-key", null));
+        assertThrows(IllegalArgumentException.class, () -> builder.secondaryEnvironment("new", "primary-key", null));
+        assertThrows(IllegalArgumentException.class, () -> builder.secondaryEnvironment("new", "other-key", null));
+
+        LDConfig config = builder.build();
+        assertEquals(2, config.getMobileKeys().size());
         assertEquals("other-flags", config.getPayloadFilter("other"));
     }
 
     @Test
-    public void testBuilderSecondaryPayloadFilterEmptyOrNullRequestsFullEnvironment() {
-        Map<String, String> secondaryKeys = new HashMap<>();
-        secondaryKeys.put("empty", "empty-key");
-        secondaryKeys.put("null", "null-key");
-        Map<String, String> filters = new HashMap<>();
-        filters.put("empty", "");
-        filters.put("null", null);
+    public void testBuilderSecondaryEnvironmentEmptyFilterIsIgnored() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .logAdapter(logging.logAdapter)
                 .mobileKey("primary-key")
-                .secondaryMobileKeys(secondaryKeys)
-                .payloadFilter("mobile-flags")
-                .secondaryPayloadFilters(filters)
+                .secondaryEnvironment("other", "other-key", "")
                 .build();
 
-        assertEquals("mobile-flags", config.getPayloadFilter());
-        assertNull(config.getPayloadFilter("empty"));
-        assertNull(config.getPayloadFilter("null"));
+        assertNull(config.getPayloadFilter("other"));
         logging.assertNoErrorsLogged();
     }
 
     @Test
-    public void testBuilderSecondaryPayloadFilterInvalidIsDroppedWithError() {
+    public void testBuilderSecondaryEnvironmentInvalidFilterIsDroppedWithError() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .logAdapter(logging.logAdapter)
                 .mobileKey("primary-key")
-                .secondaryMobileKeys(Collections.singletonMap("other", "other-key"))
                 .payloadFilter("mobile-flags")
-                .secondaryPayloadFilters(Collections.singletonMap("other", "not valid"))
+                .secondaryEnvironment("other", "other-key", "not valid")
                 .build();
 
         assertEquals("mobile-flags", config.getPayloadFilter());
         assertNull(config.getPayloadFilter("other"));
         logging.assertErrorLogged("Payload filter \"not valid\" is invalid; the full \"other\" environment");
-    }
-
-    @Test
-    public void testBuilderSecondaryPayloadFiltersForUnknownEnvironmentsAreIgnoredWithWarning() {
-        Map<String, String> filters = new HashMap<>();
-        filters.put("unknown", "unknown-flags");
-        filters.put(LDConfig.primaryEnvironmentName, "primary-override");
-        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
-                .logAdapter(logging.logAdapter)
-                .mobileKey("primary-key")
-                .secondaryMobileKeys(Collections.singletonMap("other", "other-key"))
-                .payloadFilter("mobile-flags")
-                .secondaryPayloadFilters(filters)
-                .build();
-
-        assertEquals("mobile-flags", config.getPayloadFilter());
-        assertEquals("mobile-flags", config.getPayloadFilter("other"));
-        assertEquals("mobile-flags", config.getPayloadFilter("unknown"));
-        logging.assertWarnLogged("so their filters are ignored: [" + LDConfig.primaryEnvironmentName + ", unknown]");
     }
 
     @Test

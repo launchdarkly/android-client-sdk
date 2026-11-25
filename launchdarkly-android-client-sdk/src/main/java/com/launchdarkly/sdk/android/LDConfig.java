@@ -29,7 +29,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 import okhttp3.MediaType;
@@ -197,15 +196,16 @@ public class LDConfig {
     }
 
     /**
-     * Returns the payload filter key for an environment: the one set for it with
-     * {@link Builder#secondaryPayloadFilters(Map)}, or else the one set with {@link Builder#payloadFilter(String)}.
-     * A name that is not one of this configuration's environments gets the primary environment's key.
+     * Returns the payload filter key for an environment: the one set with {@link Builder#payloadFilter(String)}
+     * for the primary environment, or with {@link Builder#secondaryEnvironment(String, String, String)} for a
+     * secondary one.
      *
-     * @param environmentName an environment name, as given to {@link Builder#secondaryMobileKeys(Map)}
-     * @return the payload filter key, or null if the environment requests the full environment
+     * @param environmentName an environment name
+     * @return the payload filter key, or null if the environment has no valid filter or is not one of this
+     *         configuration's environments
      */
     public String getPayloadFilter(String environmentName) {
-        return payloadFilters.containsKey(environmentName) ? payloadFilters.get(environmentName) : getPayloadFilter();
+        return payloadFilters.get(environmentName);
     }
 
     /**
@@ -306,7 +306,7 @@ public class LDConfig {
         private long connectionModeStateDebounceMs = StateDebounceManager.DEFAULT_DEBOUNCE_MS;
 
         private String payloadFilter = null;
-        private Map<String, String> secondaryPayloadFilters = null;
+        private Map<String, String> secondaryPayloadFilters = new HashMap<>(); // by environment name
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = LDPackageConsts.DEFAULT_LOGGER_NAME;
@@ -351,6 +351,7 @@ public class LDConfig {
         public Builder secondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
             if (secondaryMobileKeys == null) {
                 this.secondaryMobileKeys = null;
+                this.secondaryPayloadFilters.clear();
                 return this;
             }
 
@@ -367,6 +368,44 @@ public class LDConfig {
             }
 
             this.secondaryMobileKeys = unmodifiable;
+            this.secondaryPayloadFilters.clear();
+            return this;
+        }
+
+        /**
+         * Adds a secondary environment, optionally with a payload filter.
+         * <p>
+         * The payload filter must be defined in the mobile key's project, and works as
+         * {@link #payloadFilter(String)} does for the primary environment. Calling
+         * {@link #secondaryMobileKeys(Map)} afterwards replaces every secondary environment, including
+         * the ones added here.
+         *
+         * @param name the name that identifies the environment, as passed to {@link LDClient#getForMobileKey(String)}
+         * @param mobileKey the environment's mobile key
+         * @param payloadFilter the key of a payload filter to apply to the environment's flag data
+         *                      requests, or null for no filter
+         * @return the builder
+         * @throws IllegalArgumentException if the name is the primary environment name or is already
+         *         used, or if the mobile key is the primary key or is already used
+         */
+        public Builder secondaryEnvironment(String name, String mobileKey, String payloadFilter) {
+            if (primaryEnvironmentName.equals(name)) {
+                throw new IllegalArgumentException("The primary environment name is not a valid key.");
+            }
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsKey(name)) {
+                throw new IllegalArgumentException("A secondary environment with this name already exists.");
+            }
+            if (mobileKey != null && mobileKey.equals(this.mobileKey)) {
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
+            }
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
+                throw new IllegalArgumentException("A key can only be used once.");
+            }
+
+            Map<String, String> keys = secondaryMobileKeys == null ? new HashMap<>() : new HashMap<>(secondaryMobileKeys);
+            keys.put(name, mobileKey);
+            this.secondaryMobileKeys = Collections.unmodifiableMap(keys);
+            this.secondaryPayloadFilters.put(name, payloadFilter);
             return this;
         }
 
@@ -631,9 +670,8 @@ public class LDConfig {
          * adds it as the {@code filter} query parameter to its streaming and polling requests, and
          * LaunchDarkly limits the flags it sends to the ones selected by that filter.
          * <p>
-         * This key applies to the primary environment, and to every secondary environment that
-         * {@link #secondaryPayloadFilters(Map)} does not name. Each of those environments' projects
-         * needs a filter with this key.
+         * This key applies only to the primary environment. To filter a secondary environment, add it
+         * with {@link #secondaryEnvironment(String, String, String)}.
          * <p>
          * The key must contain only alphanumeric characters, periods, underscores, and hyphens, and
          * must start with an alphanumeric character. If the key is invalid, the SDK logs an error and
@@ -644,24 +682,6 @@ public class LDConfig {
          */
         public Builder payloadFilter(String payloadFilter) {
             this.payloadFilter = payloadFilter;
-            return this;
-        }
-
-        /**
-         * Sets payload filter keys for secondary environments, by the names given to
-         * {@link #secondaryMobileKeys(Map)}.
-         * <p>
-         * A secondary environment named here uses its own key instead of the one set with
-         * {@link #payloadFilter(String)}, or requests the full environment if its key is null or empty.
-         * Keys are validated as {@link #payloadFilter(String)} validates them. Names that are not
-         * secondary environments are ignored, and the SDK logs them when the configuration is built.
-         *
-         * @param secondaryPayloadFilters a map of secondary environment names to payload filter keys,
-         *                                or null to use {@link #payloadFilter(String)} for every environment
-         * @return the builder
-         */
-        public Builder secondaryPayloadFilters(Map<String, String> secondaryPayloadFilters) {
-            this.secondaryPayloadFilters = secondaryPayloadFilters == null ? null : new HashMap<>(secondaryPayloadFilters);
             return this;
         }
 
@@ -860,22 +880,9 @@ public class LDConfig {
         private Map<String, String> validPayloadFilters(Map<String, String> mobileKeys, LDLogger logger) {
             HashMap<String, String> payloadFilters = new HashMap<>();
             for (String environmentName : mobileKeys.keySet()) {
-                String filter = payloadFilter;
-                if (!environmentName.equals(primaryEnvironmentName) && secondaryPayloadFilters != null
-                        && secondaryPayloadFilters.containsKey(environmentName)) {
-                    filter = secondaryPayloadFilters.get(environmentName);
-                }
+                String filter = environmentName.equals(primaryEnvironmentName)
+                        ? payloadFilter : secondaryPayloadFilters.get(environmentName);
                 payloadFilters.put(environmentName, validPayloadFilterOrNull(filter, environmentName, logger));
-            }
-            if (secondaryPayloadFilters != null) {
-                Set<String> unknownEnvironments = new TreeSet<>(secondaryPayloadFilters.keySet());
-                if (secondaryMobileKeys != null) {
-                    unknownEnvironments.removeAll(secondaryMobileKeys.keySet());
-                }
-                if (!unknownEnvironments.isEmpty()) {
-                    logger.warn("secondaryPayloadFilters names environments that are not secondary environments, so their filters are ignored: {}",
-                            unknownEnvironments);
-                }
             }
             return Collections.unmodifiableMap(payloadFilters);
         }

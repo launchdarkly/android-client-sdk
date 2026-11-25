@@ -176,7 +176,7 @@ public class StreamingDataSourceTest {
             configBuilder.http(Components.httpConfiguration().useReport(true));
         }
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                configBuilder.build(), MOBILE_KEY, "", perEnvironmentData,
+                configBuilder.build(), MOBILE_KEY, LDConfig.primaryEnvironmentName, perEnvironmentData,
                 makeFeatureFetcher(), CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(baseClientContext, sink, CONTEXT, false, false);
@@ -663,9 +663,8 @@ public class StreamingDataSourceTest {
                     .logAdapter(logging.logAdapter)
                     .serviceEndpoints(Components.serviceEndpoints().streaming(server.getUri()))
                     .mobileKey(MOBILE_KEY)
-                    .secondaryMobileKeys(Collections.singletonMap("other", "other-mobile-key"))
                     .payloadFilter("mobile-flags")
-                    .secondaryPayloadFilters(Collections.singletonMap("other", "other-flags"))
+                    .secondaryEnvironment("other", "other-mobile-key", "other-flags")
                     .build();
             ClientContext baseClientContext = ClientContextImpl.fromConfig(
                     config, "other-mobile-key", "other", perEnvironmentData,
