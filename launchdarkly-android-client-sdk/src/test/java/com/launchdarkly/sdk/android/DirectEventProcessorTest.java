@@ -576,6 +576,38 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aLossClaimedForAFlushThatStoppedWaitingIsToldToTheNextFlush() throws Exception {
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+
+                // The delivery loses the poison event, and answers only once its caller has stopped waiting,
+                // as a flushAndWait that times out does.
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                try {
+                    first.get(100, TimeUnit.MILLISECONDS);
+                    fail("expected the wait to time out");
+                } catch (TimeoutException expected) {
+                    // The caller gives up here, before it hears of the loss.
+                }
+                letFirstResponseFinish.release();
+
+                assertFalse(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFailedDeliveryIsRetriedOnceUnderTheSamePayloadId() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202)))) {
