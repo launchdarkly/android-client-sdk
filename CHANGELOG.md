@@ -2,6 +2,17 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.20.0](https://github.com/launchdarkly/android-client-sdk/compare/5.19.0...5.20.0) (2026-11-25)
+
+
+### Features
+
+* Add an option to compress event payloads with gzip ([#414](https://github.com/launchdarkly/android-client-sdk/issues/414)) ([aa50b06](https://github.com/launchdarkly/android-client-sdk/commit/aa50b0613206ba021f58f7e9831f8dd10c435d3e))
+* **events:** add flushAndWait with a bounded timeout (tier 2) ([#403](https://github.com/launchdarkly/android-client-sdk/issues/403)) ([31ae160](https://github.com/launchdarkly/android-client-sdk/commit/31ae160a6e98806b03ffcf32f85c01fac636cdbb))
+* **events:** persist events to disk so they survive the process (tier 3) ([ecfbca9](https://github.com/launchdarkly/android-client-sdk/commit/ecfbca9bd8e15c764a33ae8e0e25eb9105a54013))
+* **events:** raise the default `EventProcessorBuilder.capacity` from 100 to 2000, so the in-memory event buffer can hold 20 times as many events as before, also with persistence disabled ([ecfbca9](https://github.com/launchdarkly/android-client-sdk/commit/ecfbca9bd8e15c764a33ae8e0e25eb9105a54013))
+* **events:** summarize and buffer events on the recording thread (tier 1) ([#397](https://github.com/launchdarkly/android-client-sdk/issues/397)) ([5611468](https://github.com/launchdarkly/android-client-sdk/commit/56114686cd9d13b8e2a997269ac0f06ca8334435))
+
 ## [5.19.0](https://github.com/launchdarkly/android-client-sdk/compare/5.18.0...5.19.0) (2026-11-20)
 
 
