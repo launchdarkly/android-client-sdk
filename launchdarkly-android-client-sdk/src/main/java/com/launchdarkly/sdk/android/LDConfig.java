@@ -91,7 +91,7 @@ public class LDConfig {
     private final int maxCachedContexts;
     private final boolean offline;
     private final long connectionModeStateDebounceMs;
-    private final String payloadFilter;
+    private final Map<String, String> payloadFilters; // by environment name; a null value means no filter
     private final PersistentDataStore persistentDataStore; // configurable for testing only
 
     LDConfig(Map<String, String> mobileKeys,
@@ -111,7 +111,7 @@ public class LDConfig {
              boolean generateAnonymousKeys,
              boolean autoEnvAttributes,
              long connectionModeStateDebounceMs,
-             String payloadFilter,
+             Map<String, String> payloadFilters,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -132,7 +132,7 @@ public class LDConfig {
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.autoEnvAttributes = autoEnvAttributes;
         this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
-        this.payloadFilter = payloadFilter;
+        this.payloadFilters = payloadFilters;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -188,11 +188,24 @@ public class LDConfig {
     }
 
     /**
-     * @return the payload filter key, or null if no valid filter was configured
+     * @return the payload filter key for the primary environment, or null if no valid filter was configured
      * @see Builder#payloadFilter(String)
      */
     public String getPayloadFilter() {
-        return payloadFilter;
+        return payloadFilters.get(primaryEnvironmentName);
+    }
+
+    /**
+     * Returns the payload filter key for an environment: the one set with {@link Builder#payloadFilter(String)}
+     * for the primary environment, or with {@link Builder#secondaryEnvironment(String, String, String)} for a
+     * secondary one.
+     *
+     * @param environmentName an environment name
+     * @return the payload filter key, or null if the environment has no valid filter or is not one of this
+     *         configuration's environments
+     */
+    public String getPayloadFilter(String environmentName) {
+        return payloadFilters.get(environmentName);
     }
 
     /**
@@ -293,6 +306,7 @@ public class LDConfig {
         private long connectionModeStateDebounceMs = StateDebounceManager.DEFAULT_DEBOUNCE_MS;
 
         private String payloadFilter = null;
+        private Map<String, String> secondaryPayloadFilters = new HashMap<>(); // by environment name
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = LDPackageConsts.DEFAULT_LOGGER_NAME;
@@ -337,6 +351,7 @@ public class LDConfig {
         public Builder secondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
             if (secondaryMobileKeys == null) {
                 this.secondaryMobileKeys = null;
+                this.secondaryPayloadFilters.clear();
                 return this;
             }
 
@@ -353,6 +368,45 @@ public class LDConfig {
             }
 
             this.secondaryMobileKeys = unmodifiable;
+            this.secondaryPayloadFilters.clear();
+            return this;
+        }
+
+        /**
+         * Adds a secondary environment, optionally with a payload filter.
+         * <p>
+         * The payload filter must be defined in the mobile key's project, and works as
+         * {@link #payloadFilter(String)} does for the primary environment, including applying only to
+         * FDv1 requests. To filter by views with FDv2, pass a mobile key with a custom payload. Calling
+         * {@link #secondaryMobileKeys(Map)} afterwards replaces every secondary environment, including
+         * the ones added here.
+         *
+         * @param name the name that identifies the environment, as passed to {@link LDClient#getForMobileKey(String)}
+         * @param mobileKey the environment's mobile key
+         * @param payloadFilter the key of a payload filter to apply to the environment's flag data
+         *                      requests, or null for no filter
+         * @return the builder
+         * @throws IllegalArgumentException if the name is the primary environment name or is already
+         *         used, or if the mobile key is the primary key or is already used
+         */
+        public Builder secondaryEnvironment(String name, String mobileKey, String payloadFilter) {
+            if (primaryEnvironmentName.equals(name)) {
+                throw new IllegalArgumentException("The primary environment name is not a valid key.");
+            }
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsKey(name)) {
+                throw new IllegalArgumentException("A secondary environment with this name already exists.");
+            }
+            if (mobileKey != null && mobileKey.equals(this.mobileKey)) {
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
+            }
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
+                throw new IllegalArgumentException("A key can only be used once.");
+            }
+
+            Map<String, String> keys = secondaryMobileKeys == null ? new HashMap<>() : new HashMap<>(secondaryMobileKeys);
+            keys.put(name, mobileKey);
+            this.secondaryMobileKeys = Collections.unmodifiableMap(keys);
+            this.secondaryPayloadFilters.put(name, payloadFilter);
             return this;
         }
 
@@ -617,6 +671,14 @@ public class LDConfig {
          * adds it as the {@code filter} query parameter to its streaming and polling requests, and
          * LaunchDarkly limits the flags it sends to the ones selected by that filter.
          * <p>
+         * Payload filters are an FDv1 feature. When {@link #dataSystem(DataSystemBuilder)} is set, the
+         * SDK sends the filter only on FDv1 fallback requests and logs a warning. FDv2 filters flag data
+         * by the views linked to the mobile key instead: use a mobile key with a custom payload. Such a
+         * key does not work with FDv1 requests, which LaunchDarkly rejects with a 422 status.
+         * <p>
+         * This key applies only to the primary environment. To filter a secondary environment, add it
+         * with {@link #secondaryEnvironment(String, String, String)}.
+         * <p>
          * The key must contain only alphanumeric characters, periods, underscores, and hyphens, and
          * must start with an alphanumeric character. If the key is invalid, the SDK logs an error and
          * requests the full environment instead.
@@ -809,17 +871,31 @@ public class LDConfig {
             return LDTimberLogging.adapter();
         }
 
-        private String validPayloadFilterOrNull(LDLogAdapter actualLogAdapter) {
+        private static String validPayloadFilterOrNull(String payloadFilter, String environmentName, LDLogger logger) {
             if (payloadFilter == null || payloadFilter.isEmpty()) {
                 return null;
             }
             if (!PAYLOAD_FILTER_PATTERN.matcher(payloadFilter).matches()) {
-                LDLogger.withAdapter(actualLogAdapter, loggerName).error(
-                        "Payload filter \"{}\" is invalid; the full environment will be requested instead",
-                        payloadFilter);
+                logger.error("Payload filter \"{}\" is invalid; the full \"{}\" environment will be requested instead",
+                        payloadFilter, environmentName);
                 return null;
             }
             return payloadFilter;
+        }
+
+        private Map<String, String> validPayloadFilters(Map<String, String> mobileKeys, LDLogger logger) {
+            HashMap<String, String> payloadFilters = new HashMap<>();
+            for (String environmentName : mobileKeys.keySet()) {
+                String filter = validPayloadFilterOrNull(environmentName.equals(primaryEnvironmentName)
+                        ? payloadFilter : secondaryPayloadFilters.get(environmentName), environmentName, logger);
+                if (filter != null && dataSystemBuilder != null) {
+                    logger.warn("Payload filter \"{}\" for the \"{}\" environment applies only to FDv1 fallback requests;"
+                            + " FDv2 requests receive the flags in the views linked to the mobile key",
+                            filter, environmentName);
+                }
+                payloadFilters.put(environmentName, filter);
+            }
+            return Collections.unmodifiableMap(payloadFilters);
         }
 
         /**
@@ -888,7 +964,7 @@ public class LDConfig {
                     generateAnonymousKeys,
                     autoEnvAttributes,
                     connectionModeStateDebounceMs,
-                    validPayloadFilterOrNull(actualLogAdapter),
+                    validPayloadFilters(mobileKeys, LDLogger.withAdapter(actualLogAdapter, loggerName)),
                     persistentDataStore,
                     actualLogAdapter,
                     loggerName);
