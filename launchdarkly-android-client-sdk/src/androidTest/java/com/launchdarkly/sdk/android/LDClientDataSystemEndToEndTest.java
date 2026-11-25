@@ -194,7 +194,9 @@ public class LDClientDataSystemEndToEndTest {
             assertFalse("client was offline", client.isOffline());
             assertEquals(flagValueA, client.stringVariation(flagKeyA, "defaultA"));
 
-            client.identify(contextB).get();
+            // Polling keeps failing, so identify never completes. Waiting for it would mean waiting for a timeout.
+            // Instead, this depends on identify applying the cached flags for contextB before it returns.
+            client.identify(contextB);
             assertEquals(flagValueB, client.stringVariation(flagKeyB, "defaultB"));
         }
     }

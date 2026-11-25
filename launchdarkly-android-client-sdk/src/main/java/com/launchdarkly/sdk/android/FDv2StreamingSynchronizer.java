@@ -22,7 +22,10 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.Selector;
+import com.launchdarkly.sdk.fdv2.SourceResultType;
+import com.launchdarkly.sdk.fdv2.SourceSignal;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.fdv2.payloads.FDv2Event;
@@ -33,9 +36,12 @@ import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -58,6 +64,11 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private static final long READ_TIMEOUT_MS = 300_000; // 5 minutes
     private static final long MAX_RECONNECT_TIME_MS = 300_000; // 5 minutes
 
+    /**
+     * The time a stream must stay healthy, from its first valid result, to meet the reset threshold.
+     */
+    static final long RESET_THRESHOLD_MILLIS = TimeUnit.SECONDS.toMillis(60);
+
     private final HttpProperties httpProperties;
     private final URI streamBaseUri;
     private final String streamRequestPath;
@@ -68,10 +79,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private final FDv2Requestor requestor;
     private final boolean evaluationReasons;
     private final int initialReconnectDelayMillis;
+    private final long resetThresholdMillis;
     @Nullable
     private final DiagnosticStore diagnosticStore;
     private final LDLogger logger;
     private final Executor executor;
+    private final ScheduledExecutorService scheduler;
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
@@ -84,6 +97,14 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private volatile EventSource eventSource;
     private volatile long streamStarted = 0;
 
+    private final Object resetThresholdLock = new Object();
+
+    /**
+     * The timer that reports that the current stream met its reset threshold, or null if the current stream has
+     * not produced a valid result. Guarded by {@link #resetThresholdLock}.
+     */
+    private ScheduledFuture<?> resetThresholdFuture;
+
     /**
      * @param evaluationContext            the context to evaluate flags for
      * @param selectorSource               source of the current selector, sent as the request basis
@@ -91,11 +112,14 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param streamRequestPath            path appended to the base URI for the stream request
      * @param requestor                    optional requestor for handling ping events via poll; may be null
      * @param initialReconnectDelayMillis  delay before reconnecting after an error, in milliseconds
+     * @param resetThresholdMillis         time a stream must stay healthy to meet the reset threshold, in
+     *                                     milliseconds
      * @param evaluationReasons           true to request evaluation reasons in the stream
      * @param usePost                      true to send the context in the request body via HTTP POST
      * @param httpProperties               HTTP configuration for the stream request
      * @param executor                     executor used to run the streaming loop on a background
      *                                     thread; should use background-priority threads
+     * @param scheduler                    scheduler for the reset threshold timer
      * @param logger                       logger
      * @param diagnosticStore              optional store for stream diagnostics; may be null
      */
@@ -106,10 +130,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             @NonNull String streamRequestPath,
             @Nullable FDv2Requestor requestor,
             int initialReconnectDelayMillis,
+            long resetThresholdMillis,
             boolean evaluationReasons,
             boolean usePost,
             @NonNull HttpProperties httpProperties,
             @NonNull Executor executor,
+            @NonNull ScheduledExecutorService scheduler,
             @NonNull LDLogger logger,
             @Nullable DiagnosticStore diagnosticStore
     ) {
@@ -119,10 +145,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         this.streamRequestPath = streamRequestPath;
         this.requestor = requestor;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
+        this.resetThresholdMillis = resetThresholdMillis;
         this.evaluationReasons = evaluationReasons;
         this.usePost = usePost;
         this.httpProperties = httpProperties;
         this.executor = executor;
+        this.scheduler = scheduler;
         this.logger = logger;
         this.diagnosticStore = diagnosticStore;
     }
@@ -159,6 +187,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             } catch (IOException ignored) {
             }
         }
+        cancelResetThresholdTimer();
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
     }
 
@@ -230,9 +259,11 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     }
                 }
                 LDUtil.logExceptionAtErrorLevel(logger, e, "Stream thread ended with unexpected exception");
+                cancelResetThresholdTimer();
                 recordStreamInit(true);
-                resultQueue.put(FDv2SourceResult.status(
-                        FDv2SourceResult.Status.interrupted(
+                // The stream thread has ended and does not restart, so the failure is terminal.
+                shutdownFuture.set(FDv2SourceResult.status(
+                        FDv2SourceResult.Status.terminalError(
                                 new LDFailure("Stream thread ended unexpectedly", e,
                                         LDFailure.FailureType.UNKNOWN_ERROR)),
                         false));
@@ -257,6 +288,50 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         long start = streamStarted;
         if (diagnosticStore != null && start != 0) {
             diagnosticStore.recordStreamInit(start, System.currentTimeMillis() - start, failed);
+        }
+    }
+
+    /**
+     * Starts the reset threshold timer if the current stream does not have one yet. Call this for each
+     * valid result, so that the first valid result on a stream starts the timer.
+     */
+    private void startResetThresholdTimerIfNeeded() {
+        synchronized (resetThresholdLock) {
+            if (resetThresholdFuture != null) {
+                return;
+            }
+            resetThresholdFuture = scheduler.schedule(
+                    this::reportResetThresholdMet,
+                    resetThresholdMillis,
+                    TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * Stops the reset threshold timer of the current stream. Call this when the stream ends or fails.
+     */
+    private void cancelResetThresholdTimer() {
+        synchronized (resetThresholdLock) {
+            if (resetThresholdFuture != null) {
+                resetThresholdFuture.cancel(false);
+                resetThresholdFuture = null;
+            }
+        }
+    }
+
+    private void reportResetThresholdMet() {
+        synchronized (resetThresholdLock) {
+            // The timer can start to run before a cancel. Do not report anything for a stream that ended.
+            if (resetThresholdFuture == null) {
+                return;
+            }
+            ChangeSet<Map<String, Flag>> noChanges = new ChangeSet<>(
+                    ChangeSetType.None,
+                    Selector.EMPTY,
+                    Collections.<String, Flag>emptyMap(),
+                    /* environmentId= */ null,
+                    /* shouldPersist= */ true);
+            resultQueue.put(FDv2SourceResult.changeSet(noChanges, /* fdv1Fallback= */ false).withResetThresholdMet());
         }
     }
 
@@ -319,6 +394,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     recordStreamInit(false);
                     streamStarted = 0;
                     resultQueue.put(FDv2SourceResult.changeSet(changeSet, fdv1Fallback));
+                    startResetThresholdTimerIfNeeded();
                 } catch (Exception e) {
                     LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to translate changeset");
                     FDv2SourceResult result = FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(
@@ -351,6 +427,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                         (FDv2ProtocolHandler.FDv2ActionInternalError) action;
                 logger.error("FDv2 protocol internal error ({}): {}",
                         internalError.getErrorType(), internalError.getMessage());
+                cancelResetThresholdTimer();
                 resultQueue.put(FDv2SourceResult.status(
                         FDv2SourceResult.Status.interrupted(
                                 new LDFailure("FDv2 protocol internal error: " + internalError.getMessage(),
@@ -384,7 +461,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
         logger.debug("Stream received ping; fetching payload via poll");
         FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, logger, selectorSource.getSelector(), false);
+        if (result.getStatus() != null && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
+            cancelResetThresholdTimer();
+        }
         resultQueue.put(result);
+        if (result.getResultType() == SourceResultType.CHANGE_SET) {
+            startResetThresholdTimerIfNeeded();
+        }
     }
 
     private void handleError(FaultEvent event) {
@@ -393,6 +476,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             return;
         }
 
+        cancelResetThresholdTimer();
         recordStreamInit(true);
         protocolHandler.reset();
 
@@ -449,6 +533,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param failed true if the restart is due to an error (for diagnostic recording)
      */
     private void restartStream(boolean failed) {
+        cancelResetThresholdTimer();
         recordStreamInit(failed);
         streamStarted = System.currentTimeMillis();
 

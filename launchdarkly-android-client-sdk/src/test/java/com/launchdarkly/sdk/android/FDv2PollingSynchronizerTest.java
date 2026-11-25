@@ -21,7 +21,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Unit tests for {@link FDv2PollingSynchronizer}.
@@ -104,6 +106,59 @@ public class FDv2PollingSynchronizerTest {
             poll2.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
             FDv2SourceResult result2 = nextFuture2.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
+        } finally {
+            synchronizer.close();
+        }
+    }
+
+    // ---- reset threshold ----
+
+    @Test
+    public void resetThresholdMetIsReportedOnSecondConsecutiveSuccessfulPoll() throws Exception {
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        for (int i = 0; i < 3; i++) {
+            requestor.queueResponse(
+                    FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
+        }
+        FDv2PollingSynchronizer synchronizer = buildSynchronizer(requestor, 0, 10);
+
+        try {
+            // Read the results of three consecutive successful polls.
+            FDv2SourceResult first = synchronizer.next().get(1, TimeUnit.SECONDS);
+            FDv2SourceResult second = synchronizer.next().get(1, TimeUnit.SECONDS);
+            FDv2SourceResult third = synchronizer.next().get(1, TimeUnit.SECONDS);
+
+            // Only the second successful poll reports that the reset threshold was met.
+            assertFalse(first.isResetThresholdMet());
+            assertTrue(second.isResetThresholdMet());
+            assertFalse(third.isResetThresholdMet());
+        } finally {
+            synchronizer.close();
+        }
+    }
+
+    @Test
+    public void failedPollRestartsResetThresholdCount() throws Exception {
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
+        requestor.queueError(new IOException("network error"));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
+        FDv2PollingSynchronizer synchronizer = buildSynchronizer(requestor, 0, 10);
+
+        try {
+            // Read the results of a successful poll, a failed poll, and two more successful polls.
+            FDv2SourceResult successBeforeFailure = synchronizer.next().get(1, TimeUnit.SECONDS);
+            FDv2SourceResult failure = synchronizer.next().get(1, TimeUnit.SECONDS);
+            FDv2SourceResult firstSuccessAfterFailure = synchronizer.next().get(1, TimeUnit.SECONDS);
+            FDv2SourceResult secondSuccessAfterFailure = synchronizer.next().get(1, TimeUnit.SECONDS);
+
+            // The failure restarts the count, so the threshold is met on the second success after it.
+            assertFalse(successBeforeFailure.isResetThresholdMet());
+            assertEquals(SourceSignal.INTERRUPTED, failure.getStatus().getState());
+            assertFalse(failure.isResetThresholdMet());
+            assertFalse(firstSuccessAfterFailure.isResetThresholdMet());
+            assertTrue(secondSuccessAfterFailure.isResetThresholdMet());
         } finally {
             synchronizer.close();
         }

@@ -111,9 +111,9 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
 
         if (sharedExecutor == null) {
             // Pool size 4: supports the FDv2DataSource main loop (1), an active synchronizer
-            // such as the streaming event loop (1), FDv2DataSource condition timers for
-            // fallback/recovery (up to 2 short-lived scheduled tasks). Only one mode is active
-            // at a time (teardown/rebuild), so this pool serves all components.
+            // such as the streaming event loop (1), and the streaming reset threshold timer
+            // (1 short-lived scheduled task). Only one mode is active at a time
+            // (teardown/rebuild), so this pool serves all components.
             sharedExecutor = Executors.newScheduledThreadPool(4);
         }
 
