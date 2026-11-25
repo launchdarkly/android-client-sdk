@@ -181,6 +181,7 @@ public abstract class DataSystemComponents {
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
                 pollingBase,
                 inputs.isEvaluationReasons(),
+                DataSourceBuildInputsInternal.get(inputs).getPayloadFilter(),
                 inputs.getHttp().shouldUsePost(),
                 LDUtil.makeHttpProperties(inputs.getHttp()),
                 inputs.getCacheDir(),

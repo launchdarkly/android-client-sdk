@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
@@ -32,6 +33,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private final URI pollUri;
     private final boolean evaluationReasons;
+    private final String payloadFilter;
     private final boolean useReport;
     private final HttpProperties httpProperties;
     private final OkHttpClient client;
@@ -43,6 +45,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         this(
             clientContext.getServiceEndpoints().getPollingBaseUri(),
             clientContext.isEvaluationReasons(),
+            LDUtil.payloadFilter(clientContext),
             clientContext.getHttp().isUseReport(),
             LDUtil.makeHttpProperties(clientContext),
             ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
@@ -53,6 +56,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     HttpFeatureFlagFetcher(
             @NonNull URI pollUri,
             boolean evaluationReasons,
+            @Nullable String payloadFilter,
             boolean useReport,
             @NonNull HttpProperties httpProperties,
             @NonNull File platformCacheDir,
@@ -60,6 +64,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     ) {
         this.pollUri = pollUri;
         this.evaluationReasons = evaluationReasons;
+        this.payloadFilter = payloadFilter;
         this.useReport = useReport;
         this.httpProperties = httpProperties;
         this.logger = logger;
@@ -159,6 +164,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
+        uri = LDUtil.withPayloadFilter(uri, payloadFilter);
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri.toURL())
                 .headers(httpProperties.toHeadersBuilder().build())
@@ -170,6 +176,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
+        uri = LDUtil.withPayloadFilter(uri, payloadFilter);
         logger.debug("Attempting to report user using uri: {}", uri);
         String contextJson = JsonSerialization.serialize(ldContext);
         RequestBody reportBody = RequestBody.create(contextJson, JSON);

@@ -71,6 +71,8 @@
     <!--
         Event persistence is part of the client's configuration, so choosing another one restarts the
         client. The choice is kept across launches: see MainActivity#setupPersistenceSpinner.
+        Next to it, which environment the buttons use, shown only with a second mobile key: see
+        MainActivity#setupEnvironmentSpinner.
     -->
     <LinearLayout
         android:id="@+id/persistence_row"
@@ -96,6 +98,23 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:spinnerMode="dropdown" />
+
+        <TextView
+            android:id="@+id/environment_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Env:"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:visibility="gone" />
+
+        <Spinner
+            android:id="@+id/environment_spinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:spinnerMode="dropdown"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!--

@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -82,11 +83,16 @@ public class DataSystemComponentsTest {
     }
 
     private DataSourceBuildInputsInternal makeInputs(HttpServer server, HttpConfiguration http) {
+        return makeInputs(server, http, null);
+    }
+
+    private DataSourceBuildInputsInternal makeInputs(HttpServer server, HttpConfiguration http,
+                                                     String payloadFilter) {
         ServiceEndpoints endpoints = new ServiceEndpoints(
                 server.getUri(), server.getUri(), server.getUri());
         return new DataSourceBuildInputsInternal(
                 CONTEXT, endpoints, http, false,
-                () -> Selector.EMPTY, executor, cacheDir.getRoot(), LOGGER, null);
+                () -> Selector.EMPTY, executor, cacheDir.getRoot(), LOGGER, null, payloadFilter);
     }
 
     @Test
@@ -251,6 +257,79 @@ public class DataSystemComponentsTest {
                 assertTrue("path should use the FDv1 GET endpoint with a context segment",
                         req.getPath().startsWith("/msdk/evalx/contexts/"));
                 assertEquals(600_000, executor.lastFixedDelayMillis);
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void pollingSynchronizerOmitsPayloadFilter() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_POLL_RESPONSE_JSON))) {
+            Synchronizer sync = new DataSystemComponents.PollingSynchronizerBuilderImpl()
+                    .build(makeInputs(server, httpConfig(false, false), "mobile-flags"));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertNull(req.getQuery());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void streamingSynchronizerOmitsPayloadFilter() throws Exception {
+        String serverIntent = "event: server-intent\ndata: {\"payloads\":[{\"id\":\"p1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"\"}]}";
+        String payloadTransferred = "event: payload-transferred\ndata: {\"state\":\"(p:p1:100)\",\"version\":100}";
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+            Synchronizer sync = new DataSystemComponents.StreamingSynchronizerBuilderImpl()
+                    .build(makeInputs(server, httpConfig(false, false), "mobile-flags"));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertNull(req.getQuery());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackSynchronizerSendsPayloadFilterWithGet() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_FDV1_JSON))) {
+            Synchronizer sync = new DataSystemComponents.FDv1PollingSynchronizerBuilderImpl()
+                    .build(makeInputs(server, httpConfig(false, false), "mobile-flags"));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertEquals("GET", req.getMethod());
+                assertEquals("?filter=mobile-flags", req.getQuery());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackSynchronizerSendsPayloadFilterWithReport() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_FDV1_JSON))) {
+            Synchronizer sync = new DataSystemComponents.FDv1PollingSynchronizerBuilderImpl()
+                    .build(makeInputs(server, httpConfig(false, true), "mobile-flags"));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertEquals("REPORT", req.getMethod());
+                assertEquals("?filter=mobile-flags", req.getQuery());
             } finally {
                 sync.close();
             }

@@ -27,6 +27,8 @@ android {
 
         buildConfigField("String", "MOBILE_KEY",
                 "\"${localProperties.getProperty('launchdarkly.mobileKey', '')}\"")
+        buildConfigField("String", "SECONDARY_MOBILE_KEY",
+                "\"${localProperties.getProperty('launchdarkly.secondaryMobileKey', '')}\"")
         buildConfigField("String", "LD_ENVIRONMENT",
                 "\"${localProperties.getProperty('launchdarkly.environment', 'production')}\"")
     }

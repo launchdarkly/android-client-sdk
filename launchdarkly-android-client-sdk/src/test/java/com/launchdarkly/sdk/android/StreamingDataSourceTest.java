@@ -27,6 +27,7 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -159,14 +160,23 @@ public class StreamingDataSourceTest {
             URI streamBaseUri,
             MockComponents.MockDataSourceUpdateSink sink,
             boolean evaluationReasons, boolean useReport) {
+        return makeDataSourceClientContext(streamBaseUri, sink, evaluationReasons, useReport, null);
+    }
+
+    private ClientContext makeDataSourceClientContext(
+            URI streamBaseUri,
+            MockComponents.MockDataSourceUpdateSink sink,
+            boolean evaluationReasons, boolean useReport, String payloadFilter) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .logAdapter(logging.logAdapter)
                 .serviceEndpoints(Components.serviceEndpoints().streaming(streamBaseUri))
-                .evaluationReasons(evaluationReasons);
+                .evaluationReasons(evaluationReasons)
+                .payloadFilter(payloadFilter);
         if (useReport) {
             configBuilder.http(Components.httpConfiguration().useReport(true));
         }
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                configBuilder.build(), MOBILE_KEY, "", perEnvironmentData,
+                configBuilder.build(), MOBILE_KEY, LDConfig.primaryEnvironmentName, perEnvironmentData,
                 makeFeatureFetcher(), CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(baseClientContext, sink, CONTEXT, false, false);
@@ -589,6 +599,112 @@ public class StreamingDataSourceTest {
             RequestInfo request = server.getRecorder().requireRequest();
             assertTrue("query should contain withReasons=true",
                     request.getQuery() != null && request.getQuery().contains("withReasons=true"));
+        }
+    }
+
+    @Test
+    public void startSendsPayloadFilterWithGet() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(putEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            ClientContext clientContext = makeDataSourceClientContext(
+                    server.getUri(), dataSourceUpdateSink, true, false, "mobile-flags");
+            StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                    .build(clientContext);
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertEquals("GET", request.getMethod());
+            assertEquals("?withReasons=true&filter=mobile-flags", request.getQuery());
+        }
+    }
+
+    @Test
+    public void startSendsPayloadFilterWithReport() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(putEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            ClientContext clientContext = makeDataSourceClientContext(
+                    server.getUri(), dataSourceUpdateSink, false, true, "mobile-flags");
+            StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                    .build(clientContext);
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertEquals("REPORT", request.getMethod());
+            assertEquals("?filter=mobile-flags", request.getQuery());
+        }
+    }
+
+    @Test
+    public void startSendsSecondaryEnvironmentPayloadFilter() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(putEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .logAdapter(logging.logAdapter)
+                    .serviceEndpoints(Components.serviceEndpoints().streaming(server.getUri()))
+                    .mobileKey(MOBILE_KEY)
+                    .payloadFilter("mobile-flags")
+                    .secondaryEnvironment("other", "other-mobile-key", "other-flags")
+                    .build();
+            ClientContext baseClientContext = ClientContextImpl.fromConfig(
+                    config, "other-mobile-key", "other", perEnvironmentData,
+                    makeFeatureFetcher(), CONTEXT,
+                    logging.logger, platformState, environmentReporter, taskExecutor);
+            ClientContext clientContext = ClientContextImpl.forDataSource(
+                    baseClientContext, dataSourceUpdateSink, CONTEXT, false, false);
+            StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                    .build(clientContext);
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertEquals("?filter=other-flags", request.getQuery());
+        }
+    }
+
+    @Test
+    public void startOmitsInvalidPayloadFilter() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(putEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            ClientContext clientContext = makeDataSourceClientContext(
+                    server.getUri(), dataSourceUpdateSink, false, false, "not valid");
+            StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                    .build(clientContext);
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            RequestInfo request = server.getRecorder().requireRequest();
+            assertTrue("query should not contain a filter",
+                    request.getQuery() == null || !request.getQuery().contains("filter="));
         }
     }
 

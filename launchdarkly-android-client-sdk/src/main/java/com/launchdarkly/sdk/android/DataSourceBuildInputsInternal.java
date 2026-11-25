@@ -30,6 +30,9 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
     @Nullable
     private final PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData perEnvironmentData;
 
+    @Nullable
+    private final String payloadFilter;
+
     DataSourceBuildInputsInternal(
             LDContext evaluationContext,
             ServiceEndpoints serviceEndpoints,
@@ -39,11 +42,13 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
             ScheduledExecutorService sharedExecutor,
             @NonNull File cacheDir,
             LDLogger baseLogger,
-            @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData perEnvironmentData
+            @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData perEnvironmentData,
+            @Nullable String payloadFilter
     ) {
         super(evaluationContext, serviceEndpoints, http, evaluationReasons,
                 selectorSource, sharedExecutor, cacheDir, baseLogger);
         this.perEnvironmentData = perEnvironmentData;
+        this.payloadFilter = payloadFilter;
     }
 
     /**
@@ -64,6 +69,7 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
                 inputs.getSharedExecutor(),
                 inputs.getCacheDir(),
                 inputs.getBaseLogger(),
+                null,
                 null
         );
     }
@@ -71,5 +77,10 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
     @Nullable
     PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData getPerEnvironmentDataIfAvailable() {
         return perEnvironmentData;
+    }
+
+    @Nullable
+    String getPayloadFilter() {
+        return payloadFilter;
     }
 }

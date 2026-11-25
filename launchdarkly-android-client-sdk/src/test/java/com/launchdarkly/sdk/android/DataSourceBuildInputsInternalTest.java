@@ -34,7 +34,7 @@ public class DataSourceBuildInputsInternalTest {
         return new DataSourceBuildInputsInternal(
                 CONTEXT, null, null, false,
                 () -> Selector.EMPTY, null, CACHE_DIR,
-                LDLogger.none(), envData
+                LDLogger.none(), envData, null
         );
     }
 
