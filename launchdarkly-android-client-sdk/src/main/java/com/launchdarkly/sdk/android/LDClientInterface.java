@@ -59,6 +59,17 @@ public interface LDClientInterface extends Closeable {
      * Restores network connectivity for the client, if the client was previously in offline mode.
      * This operation may be throttled if it is called too frequently.
      * <p>
+     * If a delivery of events failed, going online again:
+     * <ul>
+     *   <li>ends the wait after an ordinary failure, such as no network or a 5xx response without
+     *   <code>Retry-After</code>, and delivers the events right away.</li>
+     *   <li>keeps a wait the service set, either a <code>Retry-After</code> or the longer backoff after a
+     *   refusal such as a 401 or 403, which can last up to an hour. This holds even when a captive portal or
+     *   proxy sent the response rather than LaunchDarkly. Where
+     *   <code>EventProcessorBuilder.eventPersistence</code> is <code>DISABLED</code>, events held during
+     *   this wait are lost if the process ends.</li>
+     * </ul>
+     * <p>
      * Note: The client automatically monitors the device's network connectivity and app foreground
      * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
      * unnecessary in most situations.

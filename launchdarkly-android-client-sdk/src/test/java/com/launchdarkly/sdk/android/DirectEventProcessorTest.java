@@ -3343,6 +3343,115 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void goingOnlineAgainAfterAnOrdinaryFailurePostsAtOnceRatherThanSittingOutTheRestOfItsWait()
+            throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, DEFAULT_CAPACITY,
+                persistence() != EventPersistence.DISABLED, logging.logger);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(503), Handlers.status(503), Handlers.status(202)))) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), server.getUri(),
+                    null, NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "held", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                // Failures while the network was going, which leave about sixteen seconds to wait.
+                for (int i = 0; i < 3; i++) {
+                    lastRetryState.recordFailure(false, -1);
+                }
+
+                eventProcessor.setOffline(true);
+                eventProcessor.setOffline(false);
+
+                assertTrue(server.getRecorder().requireRequest(2, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"held\""));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void goingOnlineAgainBeforeTheLaunchGateOpensPostsAsItOpens() throws Exception {
+        assumePersisting();
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        EventStore store = EventStore.create(eventsDirectory.newFolder(), MOBILE_KEY, DEFAULT_CAPACITY, true,
+                logging.logger);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(503), Handlers.status(503), Handlers.status(202)))) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), server.getUri(),
+                    null, NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, false,
+                    new DirectEventProcessor.Pacing(4_000, 0));
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "held", LDValue.ofNull(), null);
+                // A flush does not wait for the gate.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                for (int i = 0; i < 3; i++) {
+                    lastRetryState.recordFailure(false, -1);
+                }
+
+                eventProcessor.setOffline(true);
+                eventProcessor.setOffline(false);
+
+                server.getRecorder().requireNoRequests(1_500, TimeUnit.MILLISECONDS);
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"held\""));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void goingOnlineAgainKeepsToTheWaitARefusalOrARetryAfterSet() throws Exception {
+        Handler[] refusals = {
+                Handlers.status(401),
+                Handlers.all(Handlers.header("Retry-After", "30"), Handlers.status(503))
+        };
+        for (Handler refusal : refusals) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            EventStore store = EventStore.create(eventsDirectory.newFolder(), MOBILE_KEY, DEFAULT_CAPACITY,
+                    persistence() != EventPersistence.DISABLED, logging.logger);
+            try (HttpServer server = HttpServer.start(Handlers.sequential(refusal, Handlers.status(202)))) {
+                DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                        server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000,
+                        DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler, diagnosticExecutor, store,
+                        DEFAULT_CAPACITY);
+                try {
+                    eventProcessor.setOffline(false);
+                    eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                    eventProcessor.setOffline(true);
+                    eventProcessor.setOffline(false);
+
+                    server.getRecorder().requireNoRequests(1_500, TimeUnit.MILLISECONDS);
+                } finally {
+                    eventProcessor.close();
+                    scheduler.shutdownNow();
+                }
+            }
+        }
+    }
+
+    @Test
     public void dataTooDeeplyNestedToEncodeCostsOnlyItsOwnEvent() throws Exception {
         LDValue nested = LDValue.of(1);
         for (int depth = 0; depth < 100_000; depth++) {
@@ -4825,6 +4934,23 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     EventStore store,
                                                     int capacity,
                                                     boolean commitOnCallerThread) {
+        return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor, store,
+                capacity, commitOnCallerThread, DirectEventProcessor.Pacing.NONE);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
+                                                    URI eventsUri,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler,
+                                                    ExecutorService diagnosticExecutor,
+                                                    EventStore store,
+                                                    int capacity,
+                                                    boolean commitOnCallerThread,
+                                                    DirectEventProcessor.Pacing pacing) {
         ExecutorService commitExecutor = EventUtil.makeEventsCommitExecutor();
         diagnosticExecutors.add(commitExecutor);
         lastCommitExecutor = commitExecutor;
@@ -4845,7 +4971,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 flushIntervalMillis,
                 diagnosticIntervalMillis,
                 closeBudgetMillis,
-                DirectEventProcessor.Pacing.NONE,
+                pacing,
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,

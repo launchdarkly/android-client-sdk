@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -115,6 +116,51 @@ public class DeliveryRetryStateTest {
         quick.recordFailureDuringWait(false, -1);
 
         assertTrue(quick.remainingWaitNanos() > TimeUnit.MILLISECONDS.toNanos(20));
+    }
+
+    @Test
+    public void goingOnlineEndsAnOrdinaryFailuresWaitButKeepsTheCount() {
+        assertFalse(state.endOrdinaryWait());
+        state.recordFailure(false, -1);
+        state.recordFailure(false, -1);
+
+        assertTrue(state.endOrdinaryWait());
+        assertEquals(0, state.remainingWaitNanos());
+        assertEquals(4 * SECOND, state.recordFailure(false, -1));
+    }
+
+    @Test
+    public void goingOnlineKeepsTheServicesWait() {
+        DeliveryRetryState refused = new DeliveryRetryState(FLUSH_INTERVAL);
+        refused.recordFailure(true, -1);
+        assertFalse(refused.endOrdinaryWait());
+        assertTrue(refused.remainingWaitNanos() > TimeUnit.SECONDS.toNanos(500));
+
+        DeliveryRetryState directed = new DeliveryRetryState(FLUSH_INTERVAL);
+        directed.recordFailure(false, 10 * SECOND);
+        assertFalse(directed.endOrdinaryWait());
+        assertTrue(directed.remainingWaitNanos() > TimeUnit.SECONDS.toNanos(4));
+
+        DeliveryRetryState lengthened = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, TimeUnit.HOURS.toMillis(1),
+                new FixedRandom(0));
+        lengthened.recordFailure(false, -1);
+        lengthened.recordFailureDuringWait(false, 10 * SECOND);
+        assertFalse(lengthened.endOrdinaryWait());
+    }
+
+    @Test
+    public void goingOnlineAfterTheServicesWaitRanOutLetsADeliveryGo() throws InterruptedException {
+        DeliveryRetryState quick = new DeliveryRetryState(20, 20, 20, new Random());
+        quick.recordFailure(true, -1);
+        Thread.sleep(40);
+        assertTrue(quick.endOrdinaryWait());
+    }
+
+    @Test
+    public void goingOnlineAfterAnAcceptedDeliveryHasNothingToSend() {
+        state.recordFailure(false, -1);
+        state.recordSuccess();
+        assertFalse(state.endOrdinaryWait());
     }
 
     @Test
